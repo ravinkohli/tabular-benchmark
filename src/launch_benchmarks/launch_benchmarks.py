@@ -162,7 +162,7 @@ if __name__ == "__main__":
     projects = []
     use_gpu_list = []
     n_datasets_list = []
-    benchmarks = [benchmark for benchmark in benchmarks if benchmark["name"] in benchmark_names]
+    benchmarks = [benchmark for benchmark in benchmarks if benchmark["dataset_size"] == "medium" and benchmark["task"] == "classif" and not benchmark["categorical"]]
     print(benchmarks)
 
     for n in range(1):

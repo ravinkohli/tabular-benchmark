@@ -1,0 +1,16 @@
+dataset_id,dataset_name,original_n_samples,original_n_features,num_categorical_columns,num_pseudo_categorical_columns,num_columns_missing,num_rows_missing,score_resnet,score_linear,score_hgbt,score_tree,score_mlp,score_rf,heterogeneous,n_samples,too_small
+44089,credit,16714,10,0,1,0,0,0.7546161515453639,,,,,,,16714,False
+44090,california,20634,8,0,0,0,0,0.8702309804555,,,,,,,20634,False
+44091,wine,2554,11,0,0,0,0,,,,,,,,2554,True
+44120,electricity,38474,7,0,0,0,0,0.7944278776518703,,,,,,,38474,False
+44121,covertype,566602,10,0,0,0,0,0.8227533333333333,,,,,,,566602,False
+44122,pol,10082,26,0,0,0,0,0.7387107438016528,,,,,,,10082,False
+44123,house_16H,13488,16,0,0,0,0,0.866567828020756,,,,,,,13488,False
+44124,kdd_ipums_la_97-small,5188,20,0,0,0,0,0.8326268464996789,,,,,,,5188,False
+44125,MagicTelescope,13376,10,0,0,0,0,0.8507351108896088,,,,,,,13376,False
+44126,bank-marketing,10578,7,0,0,0,0,0.7911783238815374,,,,,,,10578,False
+44127,phoneme,3172,5,0,0,0,0,0.8605042016806722,,,,,,,3172,False
+44128,MiniBooNE,72998,50,0,0,0,0,0.9192666666666666,,,,,,,72998,False
+44129,Higgs,940160,24,0,0,0,0,0.6777933333333334,,,,,,,940160,False
+44130,eye_movements,7608,20,0,0,0,0,0.5721419185282524,,,,,,,7608,False
+44131,jannis,57580,54,0,0,0,0,0.7249799999999998,,,,,,,57580,False

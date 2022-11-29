@@ -27,6 +27,7 @@ openml.datasets.functions._get_dataset_parquet = lambda x: None #to bypass curre
 
 from reproduce_utils import set_seed, get_executer, arguments, Dataset
 
+models = ['hgbt', 'rf', 'resnet', 'mlp', 'tree', 'linear']
 
 def run_on_dataset(
     X: np.ndarray | pd.DataFrame,
@@ -79,60 +80,18 @@ def run_on_dataset(
         score_resnet, score_linear, score_hgbt, score_tree, score_mlp, score_rf = np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
         for iter in range(n_iters):
             set_seed(seed=iter)
-            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_prop,
-                                                                random_state=np.random.RandomState(iter))
-            X_train, X_test, y_train, y_test = np.array(X_train), np.array(X_test), np.array(
-                y_train), np.array(y_test)
-            if resnet_config["regression"] == True:
-                y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
-                y_train, y_test = y_train.astype(np.float32), y_test.astype(np.float32)
-            if X_test.shape[0] > 30000:  # for speed
-                indices = np.random.choice(X_test.shape[0], 30000, replace=False)
-                try:
-                    X_test = X_test.iloc[indices]
-                except:
-                    X_test = X_test[indices]
-                y_test = y_test[indices]
-            try:
-                X_train_one_hot = preprocessor.fit_transform(X_train)
-                X_test_one_hot = preprocessor.transform(X_test)
-                X_train_no_one_hot = np.zeros_like(X_train)
-                X_test_no_one_hot = np.zeros_like(X_test)
-                # not column transformer to preserve order
-                for i in range(X_train.shape[1]):
-                    if categorical_indicator[i]:
-                        X_train_no_one_hot[:, i] = X_train[:, i]
-                        X_test_no_one_hot[:, i] = X_test[:, i]
-                    else:
-                        X_train_no_one_hot[:, i] = numeric_transformer.fit_transform(
-                            X_train[:, i].reshape(-1, 1)).reshape(-1)
-                        X_test_no_one_hot[:, i] = numeric_transformer.transform(
-                            X_test[:, i].reshape(-1, 1)).reshape(-1)
-
-            except:
-                print("trying MaxAbsScaler")
-                X_train_one_hot = preprocessor_sparse.fit_transform(X_train)
-                X_test_one_hot = preprocessor_sparse.transform(X_test)
-                X_train_no_one_hot = np.zeros_like(X_train)
-                X_test_no_one_hot = np.zeros_like(X_test)
-                for i in range(X_train.shape[1]):
-                    if categorical_indicator[i]:
-                        X_train_no_one_hot[:, i] = X_train[:, i]
-                        X_test_no_one_hot[:, i] = X_test[:, i]
-                    else:
-                        X_train_no_one_hot[:, i] = numeric_transformer_sparse.fit_transform(
-                            X_train[:, i].reshape(-1, 1)).reshape(-1)
-                        X_test_no_one_hot[:, i] = numeric_transformer_sparse.transform(
-                            X_test[:, i].reshape(-1, 1)).reshape(-1)
-
-            y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
-            X_train_one_hot, X_test_one_hot = np.array(X_train_one_hot), np.array(X_test_one_hot)
-            X_train_no_one_hot, X_test_no_one_hot = np.array(X_train_no_one_hot), np.array(
-                X_test_no_one_hot)
-            X_train_one_hot, X_test_one_hot = X_train_one_hot.astype(np.float32), X_test_one_hot.astype(
-                np.float32)
-            X_train_no_one_hot, X_test_no_one_hot = X_train_no_one_hot.astype(
-                np.float32), X_test_no_one_hot.astype(np.float32)
+            y_train, y_test, X_train_one_hot, X_test_one_hot, X_train_no_one_hot, X_test_no_one_hot = get_preprocessed_train_test_split(
+                X,
+                y,
+                categorical_indicator,
+                resnet_config,
+                train_prop,
+                numeric_transformer,
+                numeric_transformer_sparse,
+                preprocessor,
+                preprocessor_sparse,
+                iter
+            )
 
             if args.regression:
                 if not "linear" in args.remove_model:
@@ -151,7 +110,7 @@ def run_on_dataset(
                 if not "linear" in args.remove_model:
                     linear_model = LogisticRegression()
                 if not "hgbt" in args.remove_model:
-                    hgbt = HistGradientBoostingClassifier(categorical_features=categorical_indicator)
+                    hgbt = HistGradientBoostingClassifier(categorical_features=categorical_indicator, )
                 if not "tree" in args.remove_model:
                     tree = DecisionTreeClassifier()
                 if not "mlp" in args.remove_model:
@@ -312,11 +271,70 @@ def run_on_dataset(
 
     return res_dic
 
+def get_preprocessed_train_test_split(X, y, categorical_indicator, resnet_config, train_prop, numeric_transformer, numeric_transformer_sparse, preprocessor, preprocessor_sparse, iter):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_prop,
+                                                                random_state=np.random.RandomState(iter))
+    X_train, X_test, y_train, y_test = np.array(X_train), np.array(X_test), np.array(
+                y_train), np.array(y_test)
+    if resnet_config["regression"] == True:
+        y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
+        y_train, y_test = y_train.astype(np.float32), y_test.astype(np.float32)
+    if X_test.shape[0] > 30000:  # for speed
+        indices = np.random.choice(X_test.shape[0], 30000, replace=False)
+        try:
+            X_test = X_test.iloc[indices]
+        except:
+            X_test = X_test[indices]
+        y_test = y_test[indices]
+    try:
+        X_train_one_hot = preprocessor.fit_transform(X_train)
+        X_test_one_hot = preprocessor.transform(X_test)
+        X_train_no_one_hot = np.zeros_like(X_train)
+        X_test_no_one_hot = np.zeros_like(X_test)
+                # not column transformer to preserve order
+        for i in range(X_train.shape[1]):
+            if categorical_indicator[i]:
+                X_train_no_one_hot[:, i] = X_train[:, i]
+                X_test_no_one_hot[:, i] = X_test[:, i]
+            else:
+                X_train_no_one_hot[:, i] = numeric_transformer.fit_transform(
+                            X_train[:, i].reshape(-1, 1)).reshape(-1)
+                X_test_no_one_hot[:, i] = numeric_transformer.transform(
+                            X_test[:, i].reshape(-1, 1)).reshape(-1)
+
+    except:
+        print("trying MaxAbsScaler")
+        X_train_one_hot = preprocessor_sparse.fit_transform(X_train)
+        X_test_one_hot = preprocessor_sparse.transform(X_test)
+        X_train_no_one_hot = np.zeros_like(X_train)
+        X_test_no_one_hot = np.zeros_like(X_test)
+        for i in range(X_train.shape[1]):
+            if categorical_indicator[i]:
+                X_train_no_one_hot[:, i] = X_train[:, i]
+                X_test_no_one_hot[:, i] = X_test[:, i]
+            else:
+                X_train_no_one_hot[:, i] = numeric_transformer_sparse.fit_transform(
+                            X_train[:, i].reshape(-1, 1)).reshape(-1)
+                X_test_no_one_hot[:, i] = numeric_transformer_sparse.transform(
+                            X_test[:, i].reshape(-1, 1)).reshape(-1)
+
+    y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
+    X_train_one_hot, X_test_one_hot = np.array(X_train_one_hot), np.array(X_test_one_hot)
+    X_train_no_one_hot, X_test_no_one_hot = np.array(X_train_no_one_hot), np.array(
+                X_test_no_one_hot)
+    X_train_one_hot, X_test_one_hot = X_train_one_hot.astype(np.float32), X_test_one_hot.astype(
+                np.float32)
+    X_train_no_one_hot, X_test_no_one_hot = X_train_no_one_hot.astype(
+                np.float32), X_test_no_one_hot.astype(np.float32)
+        
+    return y_train,y_test,X_train_one_hot,X_test_one_hot,X_train_no_one_hot,X_test_no_one_hot
+
 
 def do_evaluations_parallel(
     datasets: list[Dataset],
     args: argparse.Namespace,
     resnet_config: dict,
+    res_df: pd.DataFrame | None = None,
     device: str = "cpu",
     only_fetch_data: bool = False
 ) -> None:
@@ -344,6 +362,7 @@ def do_evaluations_parallel(
                 log_folder=log_folder,
                 total_job_time_secs=total_job_time,
                 gpu=device!="cpu")
+
             res_dic = slurm_executer.submit(run_on_dataset,
                 X=X,
                 y=y,
@@ -381,8 +400,8 @@ def do_evaluations_parallel(
 
         jobs[dataset_id] = res_dic
 
-    res_df = pd.DataFrame()
-
+    res_df = pd.DataFrame() if res_df is None else res_df
+    print(f"Already have res df with shape: {res_df.shape}")
     for dataset_id in jobs:
         if hasattr(jobs[dataset_id], 'result'):
             print(f"Waiting for result on : {dataset_id}, with job_id: {jobs[dataset_id].job_id}")
@@ -414,7 +433,7 @@ def do_evaluations_parallel(
             res_dic = jobs[dataset_id]
         res_df = res_df.append(res_dic, ignore_index=True)
 
-    res_df.to_csv("{}.csv".format(args.out_file))
+        res_df.to_csv("{}.csv".format(args.out_file), index=False)
 
 
 def do_evaluations(
@@ -422,6 +441,7 @@ def do_evaluations(
     args: argparse.Namespace,
     resnet_config: dict,
     device: str = "cpu",
+    res_df: pd.DataFrame = None,
     only_fetch_data: bool = False
 ) -> None:
     res_df = pd.DataFrame()
@@ -441,7 +461,7 @@ def do_evaluations(
                 args=args,
                 dataset_id=dataset_id,
                 dataset_name=dataset.name,
-                resnet_config=resnet_config
+                resnet_config=resnet_config,
             )
             res_df = res_df.append(res_dic, ignore_index=True)
             res_df.to_csv("{}.csv".format(args.out_file))
@@ -478,6 +498,18 @@ def do_evaluations(
 if __name__ == '__main__':
     args = arguments()
     print(args)
+    res_df = None
+    if os.path.exists(args.out_file + '.csv'):
+        res_df = pd.read_csv(args.out_file + '.csv', index_col=None)
+        run_models = set(models) - set(args.remove_model)
+        failed_dataset_ids = []
+        for model in run_models:        
+            failed_dataset_ids.append(res_df.loc[pd.isna(res_df[f'score_{model}'])]['dataset_id'])
+        failed_dataset_ids = set().union(*failed_dataset_ids)
+        res_df = res_df[~res_df['dataset_id'].isin(failed_dataset_ids)]
+        print(f"Rerunning failed tasks: {failed_dataset_ids}")
+
+        args.datasets = list(failed_dataset_ids)
     if args.datasets is None:
         valid_datasets = Dataset.fetch("too_easy", args.categorical)
         test_datasets = Dataset.fetch("benchmark_dids", args.categorical)
@@ -485,14 +517,15 @@ if __name__ == '__main__':
     else:
         all_datasets = Dataset.fetch(args.datasets, args.categorical)
 
-    device = 'cuda:{}'.format(args.device) if torch.cuda.is_available() and not args.device == "cpu" else 'cpu'
+    device = 'cuda:{}'.format(args.device) if not args.device == "cpu" else 'cpu'
     print(device)
+
 
     if args.remove_model is None:
         args.remove_model = []
     
     resnet_config = {"model_type": "skorch",
-                    "model__use_checkpoints": True,
+                    "model__use_checkpoints": False,
                     "model__optimizer": "adamw",
                     "model__lr_scheduler": True,
                     "model__batch_size": 512,
@@ -534,6 +567,7 @@ if __name__ == '__main__':
             args=args,
             resnet_config=resnet_config,
             device=device,
+            res_df=res_df,
             only_fetch_data=args.only_fetch_data)
     else:
         do_evaluations(
@@ -541,4 +575,5 @@ if __name__ == '__main__':
             args=args,
             resnet_config=resnet_config,
             device=device,
+            res_df=res_df,
             only_fetch_data=args.only_fetch_data)

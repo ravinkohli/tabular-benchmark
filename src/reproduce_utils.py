@@ -23,10 +23,22 @@ import openml
                                         
 from submitit import SlurmExecutor, AutoExecutor
 
-too_easy_dids = [44, 152, 153, 351, 357, 720, 725, 734, 735, 737, 761, 803, 816, 819, 823, 833, 846, 847, 871, 976, 979, 1053, 1119, 1216, 1218, 1219, 1241, 1242, 1486, 1507, 1590, 4134, 23517, 41146, 41147, 41162, 42206, 42343, 42395, 42435, 42477, 42742, 43489, 60, 279, 1110, 1113, 1222, 1476, 1477, 1478, 1503, 1526, 4541, 40685, 40923, 41163, 41164, 41166, 41168, 41169, 41671, 41972, 42468, 42746]
-
-benchmark_dids = [44089, 44090, 44091, 44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131, 44156, 44157, 44159, 44160, 44161, 44162, 44186]
-
+benchmark_dids = dict(
+    numerical = [
+        44089, 44090, 44091, 44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131
+    ],
+    categorical=[
+        44156, 44157, 44159, 44160, 44161, 44162, 44186
+    ]
+)
+too_easy_dids = dict(
+    numerical = [
+        44, 152, 153, 246, 251, 256, 257, 258, 267, 269, 351, 357, 720, 725, 734, 735, 737, 761, 803, 816, 819, 823, 833, 846, 847, 871, 976, 979, 1053, 1119, 1181, 1205, 1212, 1216, 1218, 1219, 1240, 1241, 1242, 1486, 1507, 1590, 4134, 23517, 41146, 41147, 41162, 42206, 42343, 42395, 42435, 42477, 42742, 42750, 43489, 60, 150, 159, 160, 180, 182, 250, 252, 254, 261, 266, 271, 279, 554, 1110, 1113, 1183, 1185, 1209, 1214, 1222, 1226, 1351, 1352, 1353, 1354, 1355, 1356, 1357, 1358, 1359, 1360, 1361, 1362, 1363, 1364, 1365, 1366, 1368, 1393, 1394, 1395, 1476, 1477, 1478, 1503, 1526, 1596, 4541, 40685, 40923, 40996, 40997, 41000, 41002, 41039, 41163, 41164, 41166, 41168, 41169, 41671, 41972, 41982, 41986, 41988, 41989, 42468, 42746
+        ],
+    categorical=[
+        4, 26, 154, 179, 274, 350, 720, 881, 923, 959, 981, 993, 1110, 1112, 1113, 1119, 1169, 1240, 1461, 1486, 1503, 1568, 1590, 4534, 4541, 40517, 40672, 40997, 40998, 41000, 41002, 41003, 41006, 41147, 41162, 41440, 41672, 42132, 42192, 42193, 42206, 42343, 42344, 42345, 42477, 42493, 42732, 42734, 42742, 42746, 42750, 43044, 43439, 43489, 43607, 43890, 43892, 43898, 43903, 43904, 43920, 43922, 43923, 43938
+        ]
+    )
 
 PREDEFINED_DATASET_COLLECTIONS = {
     'too_easy': too_easy_dids,
@@ -142,10 +154,12 @@ class Dataset:
     def fetch(
         self,
         identifier: str | int | list[int],
+        use_categorical_predefined: bool = False,
         only: Callable | None = None,
     ) -> list[Dataset]:
         if isinstance(identifier, str) and identifier in PREDEFINED_DATASET_COLLECTIONS:
-            dids = PREDEFINED_DATASET_COLLECTIONS[identifier]
+            subset = "numerical" if not use_categorical_predefined else "categorical"
+            dids = PREDEFINED_DATASET_COLLECTIONS[identifier][subset]
             datasets = Dataset.from_openml(dids)
         elif isinstance(identifier, int):
             identifier = [identifier]
@@ -194,6 +208,59 @@ class Dataset:
         ]
 
 
+@dataclass
+class Results:
+    # Big ass predefined dictionary
+    df: pd.DataFrame
+
+    def at(
+        self,
+        *,
+        method: str | list[str] | None = None,
+        seed: int | list[int] | None = None,
+        dataset: str | list[str] | None = None,
+        metric: str | list[str] | None = None,
+    ) -> Results:
+        """Use this for slicing in to the dataframe to get what you need"""
+        df = self.df
+        items = {
+            "method": method,
+            "seed": seed,
+        }
+        for name, item in items.items():
+            if item is None:
+                continue
+            idx: list = item if isinstance(item, list) else [item]
+            df = df[df.index.get_level_values(name).isin(idx)]
+            if not isinstance(item, list):
+                df = df.droplevel(name, axis="index")
+
+        if dataset:
+            _dataset = dataset if isinstance(dataset, list) else [dataset]
+            df = df.T.loc[df.T.index.get_level_values("dataset").isin(_dataset)].T
+            if not isinstance(dataset, list):
+                df = df.droplevel("dataset", axis="columns")
+
+        if metric:
+            _metric = metric if isinstance(metric, list) else [metric]
+            df = df.T.loc[df.T.index.get_level_values("metric").isin(_metric)].T
+            if not isinstance(metric, list):
+                df = df.droplevel("metric", axis="columns")
+
+        return Results(df)
+
+    @property
+    def methods(self) -> list[str]:
+        return list(self.df.index.get_level_values("method").unique())
+
+    @property
+    def datasets(self) -> list[str]:
+        return list(self.df.columns.get_level_values("dataset").unique())
+
+    @property
+    def metrics(self) -> list[str]:
+        return list(self.df.columns.get_level_values("metric").unique())
+
 
 def arguments() -> argparse.Namespace:
     # Create an argument parser
@@ -212,6 +279,9 @@ def arguments() -> argparse.Namespace:
                                                         "deemed too easy with a HGBT")
     parser.add_argument('--remove_model', nargs='+', help='List of models not to try')
     parser.add_argument('--datasets', nargs='+', default=None, help='List of models not to try')
+    parser.add_argument(
+        "--partition", type=str, default="bosch_cpu-cascadelake"
+    )
     args = parser.parse_args()
 
     # Parse args.datasets manually as it could be a str or list of int

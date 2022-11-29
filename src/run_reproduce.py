@@ -72,12 +72,8 @@ def run_on_dataset(
     score_tree_list = []
     score_mlp_list = []
     score_rf_list = []
-    if int((1 - train_prop) * X.shape[0]) > 10000:
-        n_iters = 1
-    elif int((1 - train_prop) * X.shape[0]) > 5000:
-        n_iters = 3
-    else:
-        n_iters = 5
+    n_iters = 5
+
     print(X.shape)
     if X.shape[0] > 3000 and X.shape[1] > 3:
         score_resnet, score_linear, score_hgbt, score_tree, score_mlp, score_rf = np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
@@ -329,6 +325,9 @@ def do_evaluations_parallel(
 
     out_dir = os.path.dirname(args.out_file)
 
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
     log_folder = os.path.join(out_dir, "log_test/")
 
     for dataset in datasets:
@@ -345,7 +344,7 @@ def do_evaluations_parallel(
                 log_folder=log_folder,
                 total_job_time_secs=total_job_time,
                 gpu=device!="cpu")
-            res_dic = slurm_executer.submit(run_on_dataset(
+            res_dic = slurm_executer.submit(run_on_dataset,
                 X=X,
                 y=y,
                 categorical_indicator=categorical_indicator,
@@ -353,7 +352,8 @@ def do_evaluations_parallel(
                 dataset_id=dataset_id,
                 dataset_name=dataset.name,
                 resnet_config=resnet_config
-            ))
+            )
+            print(f"\n \n submitted {dataset_id} \n \n")
 
         except:
             print("FAILED")
@@ -386,8 +386,30 @@ def do_evaluations_parallel(
     for dataset_id in jobs:
         if hasattr(jobs[dataset_id], 'result'):
             print(f"Waiting for result on : {dataset_id}, with job_id: {jobs[dataset_id].job_id}")
-            res_dic = jobs[dataset_id].result()
-            print(f"Job finished for {dataset_id}, with job_id: {jobs[dataset_id].job_id}")
+            try:
+                res_dic = jobs[dataset_id].result()
+                print(f"Job finished for {dataset_id}, with job_id: {jobs[dataset_id].job_id}")
+            except Exception as e:
+                res_dic = {
+                "dataset_id": dataset_id,
+                "dataset_name": pd.NA,
+                "original_n_samples": pd.NA,
+                "original_n_features": pd.NA,
+                "num_categorical_columns": pd.NA,
+                "num_pseudo_categorical_columns": pd.NA,
+                "num_columns_missing": pd.NA,
+                "num_rows_missing": pd.NA,
+                "too_easy": pd.NA,
+                "score_resnet": pd.NA,
+                "score_linear": pd.NA,
+                "score_hgbt": pd.NA,
+                "score_tree": pd.NA,
+                "score_mlp": pd.NA,
+                "score_rf": pd.NA,
+                "heterogeneous": pd.NA,
+                "n_samples": pd.NA,
+                "too_small": pd.NA}
+                print(f"Job failed for {dataset_id}, with job_id: {jobs[dataset_id].job_id} with error: {repr(e)}")
         else:
             res_dic = jobs[dataset_id]
         res_df = res_df.append(res_dic, ignore_index=True)
@@ -457,11 +479,11 @@ if __name__ == '__main__':
     args = arguments()
     print(args)
     if args.datasets is None:
-        valid_datasets = Dataset.fetch("too_easy")
-        test_datasets = Dataset.fetch("benchmark_dids")
+        valid_datasets = Dataset.fetch("too_easy", args.categorical)
+        test_datasets = Dataset.fetch("benchmark_dids", args.categorical)
         all_datasets = valid_datasets + test_datasets
     else:
-        all_datasets = Dataset.fetch(args.datasets)
+        all_datasets = Dataset.fetch(args.datasets, args.categorical)
 
     device = 'cuda:{}'.format(args.device) if torch.cuda.is_available() and not args.device == "cpu" else 'cpu'
     print(device)
@@ -505,6 +527,8 @@ if __name__ == '__main__':
         resnet_config["data__categorical"] = False
 
     if args.parallel:
+        print(f"Running evaluation parallel")
+
         do_evaluations_parallel(
             datasets=all_datasets,
             args=args,

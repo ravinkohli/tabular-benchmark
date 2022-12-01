@@ -99,7 +99,7 @@ def run_on_dataset(
                                                             transformer=QuantileTransformer(
                                                                 output_distribution="normal"))
                 if not "hgbt" in args.remove_model:
-                    hgbt = HistGradientBoostingRegressor(categorical_features=categorical_indicator)
+                    hgbt = HistGradientBoostingRegressor(max_iter=400) # categorical_features=categorical_indicator)
                 if not "tree" in args.remove_model:
                     tree = DecisionTreeRegressor()
                 if not "mlp" in args.remove_model:
@@ -110,7 +110,7 @@ def run_on_dataset(
                 if not "linear" in args.remove_model:
                     linear_model = LogisticRegression()
                 if not "hgbt" in args.remove_model:
-                    hgbt = HistGradientBoostingClassifier(categorical_features=categorical_indicator, )
+                    hgbt = HistGradientBoostingClassifier(max_iter=400) # categorical_features=categorical_indicator, )
                 if not "tree" in args.remove_model:
                     tree = DecisionTreeClassifier()
                 if not "mlp" in args.remove_model:
@@ -121,7 +121,7 @@ def run_on_dataset(
             if not "linear" in args.remove_model:
                 linear_model.fit(X_train_one_hot, y_train)
             if not "hgbt" in args.remove_model:
-                hgbt.fit(X_train_no_one_hot, y_train)
+                hgbt.fit(X_train_one_hot, y_train)
             if not "tree" in args.remove_model:
                 tree.fit(X_train_one_hot, y_train)
             if not "mlp" in args.remove_model:
@@ -135,7 +135,7 @@ def run_on_dataset(
                 print("Linear model score: ", score_linear)
                 if not "hgbt" in args.remove_model:
                     score_hgbt = -mean_squared_error(y_test, hgbt.predict(
-                        X_test_no_one_hot), squared=False)
+                        X_test_one_hot), squared=False)
                     print("HGBT score: ", score_hgbt)
                 if not "tree" in args.remove_model:
                     score_tree = -mean_squared_error(y_test, tree.predict(
@@ -154,7 +154,7 @@ def run_on_dataset(
                     score_linear = linear_model.score(X_test_one_hot, y_test)  # accuracy
                     print("Linear model score: ", score_linear)
                 if not "hgbt" in args.remove_model:
-                    score_hgbt = hgbt.fit(X_train_no_one_hot, y_train).score(X_test_no_one_hot, y_test)
+                    score_hgbt = hgbt.fit(X_train_one_hot, y_train).score(X_test_one_hot, y_test)
                     print("HGBT score: ", score_hgbt)
                 if not "tree" in args.remove_model:
                     score_tree = tree.fit(X_train_one_hot, y_train).score(X_test_one_hot, y_test)

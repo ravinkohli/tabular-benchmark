@@ -15,7 +15,6 @@ def preprocessing(X, y, categorical_indicator, categorical, regression, transfor
         if type(X.iloc[1, i]) == str:
             categorical_indicator[i] = True
 
-
     pseudo_categorical_mask = X.nunique() < 10
     n_pseudo_categorical = 0
     cols_to_delete = []
@@ -59,3 +58,6 @@ def preprocessing(X, y, categorical_indicator, categorical, regression, transfor
 
     return X, y, categorical_indicator, num_high_cardinality, num_columns_missing, num_rows_missing, num_categorical_columns, \
               n_pseudo_categorical, original_n_samples, original_n_features
+    # return X, y, categorical_indicator, None, None, None, num_categorical_columns, \
+    #           None, original_n_samples, original_n_features
+    

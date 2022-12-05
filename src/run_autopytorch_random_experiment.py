@@ -10,9 +10,12 @@ import traceback
 
 from ConfigSpace import Configuration
 import openml
+import numpy as np
 
 import sklearn.model_selection
 from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
+from generate_dataset_pipeline import generate_dataset
+from configs.model_configs.autopytorch_config import autopytorch_config
 
 from autoPyTorch.utils.logging_ import setup_logger, get_named_client_logger, start_log_server
 
@@ -194,22 +197,24 @@ parser.add_argument(
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    SEED = 1
-    BUDGET = 5
-    dataset_openml = openml.datasets.get_dataset(args.dataset_id)
-    X, y, categorical_indicator, attribute_names = dataset_openml.get_data(
-        target=dataset_openml.default_target_attribute
-    )
-    X_train_original, X_test, y_train_original, y_test = sklearn.model_selection.train_test_split(
-        X,
-        y,
-        random_state=SEED,
-    )
-    X_train, X_valid, y_train, y_valid = sklearn.model_selection.train_test_split(
-        X_train_original,
-        y_train_original,
-        random_state=SEED,
-    )
+    seed = args.seed
+    budget = args.epochs
+
+    CONFIG_DEFAULT = {"train_prop": 0.70,
+                      "val_test_prop": 0.3,
+                      "max_val_samples": 50000,
+                      "max_test_samples": 50000,
+                      "max_train_samples": None,
+                      # "max_test_samples": None,
+    }
+    config = {
+        'data__categorical': False,
+        'data__keyword': args.dataset_id,
+        'data__method_name': 'openml',
+        'data__impute_nans': True}
+    config = {**config, **autopytorch_config, **CONFIG_DEFAULT}
+    X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
+    dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
 
     exp_dir = args.exp_dir / dataset_openml.name
     temp_dir = exp_dir / "tmp_1"
@@ -228,13 +233,13 @@ if __name__ == '__main__':
 
     logging_server, logger_port, stop_logging_server = create_logger(
         name=dataset_openml.name, 
-        seed=SEED,
+        seed=seed,
         temp_dir=temp_dir)
-    backend.setup_logger(port=logging.handlers.DEFAULT_TCP_LOGGING_PORT, name="autopytorch_pipeline")
+    backend.setup_logger(port=logger_port, name="autopytorch_pipeline")
 
     validator_kwargs = dict(is_classification=True, logger_port=logger_port)
     if not cocktails:
-        validator_kwargs.update({'seed': SEED})
+        validator_kwargs.update({'seed': seed})
     validator = TabularInputValidator(
         **validator_kwargs)
     validator = validator.fit(
@@ -250,7 +255,7 @@ if __name__ == '__main__':
         Y_test=y_valid,
         resampling_strategy=NoResamplingStrategyTypes.no_resampling,
         validator=validator,
-        seed=SEED,
+        seed=seed,
         dataset_name=dataset_openml.name
     )
     search_space_updates, include_updates = get_updates_for_regularization_cocktails()
@@ -266,7 +271,7 @@ if __name__ == '__main__':
         include=include_updates,
         search_space_updates=search_space_updates
     )
-    configuration_space.seed(SEED)
+    configuration_space.seed(seed)
 
     configurations = [configuration_space.sample_configuration() for i in range(args.max_configs)]
 
@@ -274,8 +279,8 @@ if __name__ == '__main__':
     try:
         run_history = run_random_search(
             args,
-            SEED,
-            BUDGET,
+            seed,
+            budget,
             X_test,
             y_test,
             backend,
@@ -293,60 +298,19 @@ if __name__ == '__main__':
 
     sorted_run_history = sorted(run_history, key=lambda x: run_history[x]['score']['val'], reverse=True)
     print(f"Sorted run history: {sorted_run_history}")
-    incumbent_configuration = run_history[sorted_run_history[0]]['configuration']
-
-    print(f"Refitting with : {incumbent_configuration}")
-    validator_kwargs = dict(is_classification=True, logger_port=logger_port)
-    if not cocktails:
-        validator_kwargs.update({'seed': SEED})
-    validator = TabularInputValidator(
-        **validator_kwargs)
-    validator = validator.fit(
-        X_train=X_train_original,
-        y_train=y_train_original,
-        X_test=X_test,
-        y_test=y_test
-    )
-    dataset = TabularDataset(
-        X=X_train,
-        Y=y_train,
-        X_test=X_test,
-        Y_test=y_test,
-        resampling_strategy=NoResamplingStrategyTypes.no_resampling,
-        validator=validator,
-        seed=SEED,
-        dataset_name=dataset_openml.name
-    )
-
-    final_score = run_on_autopytorch(
-        dataset=copy.copy(dataset),
-        X_test=None,
-        y_test=None,
-        seed=SEED,
-        budget=BUDGET,
-        num_run=0,
-        backend=backend,
-        device=args.device,
-        configuration=Configuration(configuration_space=configuration_space, values=incumbent_configuration),
-        validator=validator,
-        logger_port=logger_port,
-        autopytorch_source_dir=args.autopytorch_source_dir,
-        dataset_properties=dataset_properties
-    )
-
-    duration = time.time() - start_time
-    print(f"Finished refitting with score:{final_score} in {duration}s")
+    incumbent_result = run_history[sorted_run_history[0]]
 
     clean_logger(logging_server=logging_server, stop_logging_server=stop_logging_server)
     options = vars(args)
     options.pop('exp_dir', None)
     options.pop('autopytorch_source_dir', None)
     final_result = {
-        'duration': duration,
-        'test_score': final_score['test'],
-        'train_score': final_score['train'],
+        'duration': time.time() - start_time,
+        'test_score': incumbent_result['score']['test'],
+        'train_score': incumbent_result['score']['train'],
         'dataset_name': dataset_openml.name,
         'dataset_id': args.dataset_id,
+        'configuration': incumbent_result['configuration'],
         **options
     }
     json.dump(final_result, open(exp_dir / 'result.json', 'w'))

@@ -181,6 +181,16 @@ parser.add_argument(
     type=int,
     default=10
 )
+parser.add_argument(
+    '--seed',
+    type=int,
+    default=1
+)
+parser.add_argument(
+    '--epochs',
+    type=int,
+    default=105
+)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -201,9 +211,9 @@ if __name__ == '__main__':
         random_state=SEED,
     )
 
-    out_dir = args.exp_dir / dataset_openml.name
-    temp_dir = out_dir / "tmp_1"
-    out_dir = out_dir /  "out_1"
+    exp_dir = args.exp_dir / dataset_openml.name
+    temp_dir = exp_dir / "tmp_1"
+    out_dir = exp_dir /  "out_1"
     backend_kwargs = dict(
         temporary_directory=temp_dir,
         output_directory=out_dir,
@@ -276,7 +286,7 @@ if __name__ == '__main__':
             configurations
         )
         
-        json.dump(run_history, open(out_dir / 'run_history.json', 'w'))
+        json.dump(run_history, open(temp_dir / 'run_history.json', 'w'))
     except Exception as e:
         print(f"Random Search failed due to {repr(e)}")
         print(traceback.format_exc())
@@ -324,6 +334,20 @@ if __name__ == '__main__':
         dataset_properties=dataset_properties
     )
 
-    print(f"Finished refitting with score:{final_score} in {time.time() - start_time}")
+    duration = time.time() - start_time
+    print(f"Finished refitting with score:{final_score} in {duration}s")
 
     clean_logger(logging_server=logging_server, stop_logging_server=stop_logging_server)
+    options = vars(args)
+    options.pop('exp_dir', None)
+    options.pop('autopytorch_source_dir', None)
+    final_result = {
+        'duration': duration,
+        'test_score': final_score['test'],
+        'train_score': final_score['train'],
+        'dataset_name': dataset_openml.name,
+        'dataset_id': args.dataset_id,
+        **options
+    }
+    json.dump(final_result, open(exp_dir / 'result.json', 'w'))
+

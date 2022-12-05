@@ -27,6 +27,7 @@ def balance_data(x, y):
     y[indices_second_class] = 1
 
     return x.iloc[total_indices], y
+
 def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, categorical=False, regression=False, balance=False, rng=None) -> pd.DataFrame:
     """
     Import data from openML

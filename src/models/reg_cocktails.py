@@ -6,6 +6,7 @@ import tempfile as tmp
 import warnings
 from typing import Any
 import logging.handlers
+import time
 
 import pandas as pd
 import numpy as np
@@ -285,7 +286,7 @@ def run_on_autopytorch(
     device: str = "cpu",
     X_test: None | pd.DataFrame | np.ndarray = None,
     y_test: None | pd.DataFrame | np.ndarray = None,
-    metric_name: str = "balanced_accuracy",
+    metric_name: str = "accuracy",
     configuration: None | Configuration = None,
     logger_port: int = logging.handlers.DEFAULT_TCP_LOGGING_PORT,
 ) -> float:
@@ -293,6 +294,7 @@ def run_on_autopytorch(
     # Build and fit a classifier
     # ==========================
 
+    start_time = time.time()
     search_space_updates, include_updates = get_updates_for_regularization_cocktails()
     backend.save_datamanager(dataset)
     pipeline_options = replace_string_bool_to_bool(json.load(open(
@@ -351,6 +353,7 @@ def run_on_autopytorch(
     return {
         'train': train_score,
         'test': test_score,
-        'val': val_score
+        'val': val_score,
+        'duration': time.time() - start_time
     }
 

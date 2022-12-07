@@ -3,7 +3,8 @@ import numpy as np
 import numpy.random
 import pandas as pd
 from sklearn.datasets import make_spd_matrix, make_sparse_spd_matrix
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
+from sklearn.compose import ColumnTransformer
 import openml
 import pickle
 
@@ -49,12 +50,6 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     print("{} columns".format(X.shape[1]))
     y_encoder = LabelEncoder()
 
-    # Replace categorical values by integers for each categorical column
-    for i, categorical in enumerate(categorical_indicator):
-        X.iloc[:, i] = X.iloc[:, i].astype('category')
-        X.iloc[:, i] = X.iloc[:, i].cat.codes
-        X.iloc[:, i] = X.iloc[:, i].astype('int64')
-
     # remove missing values
     assert remove_nans or impute_nans, "You need to remove or impute nans"
     if remove_nans:
@@ -80,6 +75,12 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
         if sum(~categorical_indicator) > 0:
             X.iloc[:, ~categorical_indicator] = numerical_imputer.fit_transform(X.iloc[:, ~categorical_indicator])
 
+
+    # Replace categorical values by integers for each categorical column
+    X = pd.DataFrame(OrdinalEncoder().fit_transform(X))
+    # X.iloc[:, i].astype('category')
+    # X.iloc[:, i] = X.iloc[:, i].cat.codes
+    # X.iloc[:, i] = X.iloc[:, i].astype('int64')
 
 
 

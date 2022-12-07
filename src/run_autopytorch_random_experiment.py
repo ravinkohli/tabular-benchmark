@@ -16,6 +16,7 @@ import sklearn.model_selection
 from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
 from generate_dataset_pipeline import generate_dataset
 from configs.model_configs.autopytorch_config import autopytorch_config
+from reproduce_utils import get_executer
 
 from autoPyTorch.utils.logging_ import setup_logger, get_named_client_logger, start_log_server
 
@@ -50,35 +51,76 @@ def run_random_search(
     dataset,
     dataset_properties,
     configurations,
-    start=1
+    slurm_log_folder
 ):
     run_history = dict()
-    for num_run, config in enumerate(configurations, start=start):  # 0 is reserved for refit
-        # Run config on dataset
-        start_time = time.time()
-        print(f"Starting training for {num_run} and config: {config}")
-        final_score = run_on_autopytorch(
-            dataset=copy.copy(dataset),
-            X_test=X_test,
-            y_test=y_test,
-            seed=seed,
-            budget=budget,
-            num_run=num_run,
-            backend=backend,
-            device=args.device,
-            configuration=config,
-            validator=validator,
-            logger_port=logger_port,
-            autopytorch_source_dir=args.autopytorch_source_dir,
-            dataset_properties=dataset_properties
-        )
-        duration = time.time()-start_time
-        run_history[num_run] = {
-            'configuration': config.get_dictionary(),
-            'score': final_score,
-            'time': duration
-        }
-        print(f"Finished training with score:{final_score} in {duration}")
+    total_job_time = args.slurm_job_time_secs #max(time * 1.5, 120) * args.chunk_size
+    slurm_executer = get_executer(
+        partition=args.partition,
+        log_folder=slurm_log_folder,
+        total_job_time_secs=total_job_time,
+        gpu=args.device!="cpu")
+    for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
+        current_runs = dict()
+        for num_run, config in enumerate(subset_configurations, start=i*args.nr_workers + 1):  # 0 is reserved for refit
+            # Run config on dataset
+            print(f"Starting training for {num_run} and config: {config}")
+            if args.slurm:
+                job = slurm_executer.submit(run_on_autopytorch,
+                    dataset=copy.copy(dataset),
+                    X_test=X_test,
+                    y_test=y_test,
+                    seed=seed,
+                    budget=budget,
+                    num_run=num_run,
+                    backend=backend,
+                    device=args.device,
+                    configuration=config,
+                    validator=validator,
+                    logger_port=logger_port,
+                    autopytorch_source_dir=args.autopytorch_source_dir,
+                    dataset_properties=dataset_properties
+                )
+                print(f"Submitted training for {num_run} with job_id: {job.job_id}")
+                current_runs[num_run] = {
+                    'configuration': config.get_dictionary(),
+                    'cost': job
+                }
+            else:
+                final_score = run_on_autopytorch(
+                    dataset=copy.copy(dataset),
+                    X_test=X_test,
+                    y_test=y_test,
+                    seed=seed,
+                    budget=budget,
+                    num_run=num_run,
+                    backend=backend,
+                    device=args.device,
+                    configuration=config,
+                    validator=validator,
+                    logger_port=logger_port,
+                    autopytorch_source_dir=args.autopytorch_source_dir,
+                    dataset_properties=dataset_properties
+                )
+                run_history[num_run] = {
+                    'configuration': config.get_dictionary(),
+                    'cost': final_score,
+                }
+                print(f"Finished training with score:{final_score} in {final_score['duration']}")
+        if args.slurm:
+            for num_run in current_runs:
+                if num_run not in run_history:
+                    run_history[num_run] = dict()
+                run_history[num_run]['configuration'] = current_runs[num_run]['configuration']
+                job = current_runs[num_run]['cost']
+                print(f"Waiting for training to finish for {num_run} with {job.job_id}")
+                try:
+                    run_history[num_run]['cost'] = job.result()
+                    print(f"Finished training with score:{run_history[num_run]['cost']} in {run_history[num_run]['cost']['duration']}")
+                except Exception as e:
+                    print(f"Failed to finish job: {job.job_id} with {repr(e)} and \nConfiguration: {current_runs[num_run]['configuration']}")
+                    run_history[num_run]['cost'] = {'train': 0, 'test': 0, 'val': 0, 'duration': 0}
+
     return run_history
 
 
@@ -226,49 +268,45 @@ def run_on_dataset(cocktails, args, seed, budget, config):
     configurations = [configuration_space.sample_configuration() for i in range(args.max_configs)]
 
     # number of configurations each worker will evaluate on
-    n_config_per_chunk = np.ceil(args.max_configs / args.nr_worker)
-    run_history = dict()
-    for i, subset_configurations in enumerate(chunks(configurations, n_config_per_chunk)):
-        try:
-            subset_run_history = run_random_search(
-                args,
-                seed,
-                budget,
-                X_test,
-                y_test,
-                backend,
-                logger_port,
-                validator,
-                dataset,
-                dataset_properties,
-                subset_configurations,
-                start=i*args.nr_workers + 1
-            )
-            
-            run_history = {**run_history, **subset_run_history}
+    try:
+        run_history = run_random_search(
+            args,
+            seed,
+            budget,
+            X_test,
+            y_test,
+            backend,
+            logger_port,
+            validator,
+            dataset,
+            dataset_properties,
+            configurations=configurations,
+            slurm_log_folder=args.exp_dir / "log_test"
+        )
 
-            json.dump(run_history, open(temp_dir / 'run_history.json', 'w'))
-        except Exception as e:
-            print(f"Random Search failed due to {repr(e)}")
-            print(traceback.format_exc())
-
-    sorted_run_history = sorted(run_history, key=lambda x: run_history[x]['score']['val'], reverse=True)
-    print(f"Sorted run history: {sorted_run_history}")
-    incumbent_result = run_history[sorted_run_history[0]]
-
-    clean_logger(logging_server=logging_server, stop_logging_server=stop_logging_server)
-    options = vars(args)
-    options.pop('exp_dir', None)
-    options.pop('autopytorch_source_dir', None)
-    final_result = {
-        'test_score': incumbent_result['score']['test'],
-        'train_score': incumbent_result['score']['train'],
-        'dataset_name': dataset_openml.name,
-        'dataset_id': args.dataset_id,
-        'configuration': incumbent_result['configuration'],
-        **options
-    }
-    json.dump(final_result, open(exp_dir / 'result.json', 'w'))
+        json.dump(run_history, open(temp_dir / 'run_history.json', 'w'))
+        sorted_run_history = sorted(run_history, key=lambda x: run_history[x]['cost']['val'], reverse=True)
+        print(f"Sorted run history: {sorted_run_history}")
+        incumbent_result = run_history[sorted_run_history[0]]
+        options = vars(args)
+        options.pop('exp_dir', None)
+        options.pop('autopytorch_source_dir', None)
+        final_result = {
+            'test_score': incumbent_result['cost']['test'],
+            'train_score': incumbent_result['cost']['train'],
+            'val_score': incumbent_result['cost']['val'],
+            'dataset_name': dataset_openml.name,
+            'dataset_id': args.dataset_id,
+            'configuration': incumbent_result['configuration'],
+            **options
+        }
+        json.dump(final_result, open(exp_dir / 'result.json', 'w'))
+    except Exception as e:
+        print(f"Random Search failed due to {repr(e)}")
+        print(traceback.format_exc())
+    finally:
+        clean_logger(logging_server=logging_server, stop_logging_server=stop_logging_server)
+    
     return final_result
 
 
@@ -319,6 +357,23 @@ parser.add_argument(
     type=int,
     default=10
 )
+parser.add_argument(
+    '--slurm',
+    action='store_true',
+    help='True if run parallely on slurm, false otherwise'
+)
+parser.add_argument(
+    "--partition",
+    type=str,
+    default="bosch_cpu-cascadelake"
+)
+parser.add_argument(
+    '--slurm_job_time_secs',
+    type=int,
+    default=180,
+    help='Time on slurm in seconds')
+
+
 if __name__ == '__main__':
     args = parser.parse_args()
     seed = args.seed

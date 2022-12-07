@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import argparse
 import time
-import logging.handlers
 import multiprocessing
 import copy
 import os
@@ -8,28 +9,25 @@ from pathlib import Path
 import json
 import traceback
 
-from ConfigSpace import Configuration
+from ConfigSpace import Configuration, ConfigurationSpace
 import openml
 import numpy as np
+import pandas as pd
 
-import sklearn.model_selection
+from typing import Tuple
+
 from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
 from generate_dataset_pipeline import generate_dataset
 from configs.model_configs.autopytorch_config import autopytorch_config
-
+from reproduce_utils import get_executer
+from utils.dataset_utils import Dataset
 from autoPyTorch.utils.logging_ import setup_logger, get_named_client_logger, start_log_server
 
 from autoPyTorch.data.tabular_validator import TabularInputValidator
 from autoPyTorch.datasets.tabular_dataset import TabularDataset
 from autoPyTorch.datasets.resampling_strategy import NoResamplingStrategyTypes
 from autoPyTorch.utils.pipeline import get_dataset_requirements, get_configuration_space
-
-cocktails = False
-try:
-    from autoPyTorch.automl_common.common.utils.backend import Backend, create
-except ModuleNotFoundError:
-    cocktails = True
-    from autoPyTorch.utils.backend import Backend, create
+from autoPyTorch.utils.backend import Backend, create
 
 
 def chunks(lst, n):
@@ -37,200 +35,222 @@ def chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
+class BaseDatasetRunner(object):
+    def __init__(
+        self,
+        dataset_id: int,
+        seed: int,
+        budget: int,
+        exp_dir: Path,
+        autopytorch_source_dir: str,
+        device: str = 'cpu',
+        nr_workers: None | int = None,
+        max_configs: int = 20,
+    ) -> None:
 
-def run_random_search(
-    args,
-    seed,
-    budget,
-    X_test,
-    y_test,
-    backend,
-    logger_port,
-    validator,
-    dataset,
-    dataset_properties,
-    configurations,
-    start=1
-):
-    run_history = dict()
-    for num_run, config in enumerate(configurations, start=start):  # 0 is reserved for refit
-        # Run config on dataset
-        start_time = time.time()
-        print(f"Starting training for {num_run} and config: {config}")
-        final_score = run_on_autopytorch(
-            dataset=copy.copy(dataset),
-            X_test=X_test,
-            y_test=y_test,
-            seed=seed,
-            budget=budget,
-            num_run=num_run,
-            backend=backend,
-            device=args.device,
-            configuration=config,
-            validator=validator,
-            logger_port=logger_port,
-            autopytorch_source_dir=args.autopytorch_source_dir,
-            dataset_properties=dataset_properties
-        )
-        duration = time.time()-start_time
-        run_history[num_run] = {
-            'configuration': config.get_dictionary(),
-            'score': final_score,
-            'time': duration
-        }
-        print(f"Finished training with score:{final_score} in {duration}")
-    return run_history
+        self.dataset_name: str =  openml.datasets.get_dataset(dataset_id, download_data=False).name
+        self.dataset_id = dataset_id
+        self.seed = seed
+        self.budget = budget
+        self.exp_dir = exp_dir
+        self.nr_workers = nr_workers
+        self.max_configs = max_configs
+        self.autopytorch_source_dir = autopytorch_source_dir
+        self.device = device
 
+        self.create_logger()
+        self.backend = self._create_backend()
 
-def create_logger(
-    name: str,
-    seed: int,
-    temp_dir: str
-):
-    logger_name = 'AutoPyTorch:%s:%d' % (name, seed)
+    def create_logger(
+        self,
+        temp_dir: str
+    ) -> None:
+        logger_name = 'AutoPyTorch:%s:%d' % (self.dataset.name, self.seed)
 
-    # Setup the configuration for the logger
-    # This is gonna be honored by the server
-    # Which is created below
-    setup_logger(
-        filename='%s.log' % str(logger_name),
-        output_dir=temp_dir,
-        logging_config=None
-    )
-
-    # As AutoPyTorch works with distributed process,
-    # we implement a logger server that can receive tcp
-    # pickled messages. They are unpickled and processed locally
-    # under the above logging configuration setting
-    # We need to specify the logger_name so that received records
-    # are treated under the logger_name ROOT logger setting
-    context = multiprocessing.get_context('spawn')
-    stop_logging_server = context.Event()
-    port = context.Value('l')  # be safe by using a long
-    port.value = -1
-
-    # "BaseContext" has no attribute "Process" motivates to ignore the attr check
-    logging_server = context.Process(  # type: ignore [attr-defined]
-        target=start_log_server,
-        kwargs=dict(
-            host='localhost',
-            logname=logger_name,
-            event=stop_logging_server,
-            port=port,
+        # Setup the configuration for the logger
+        # This is gonna be honored by the server
+        # Which is created below
+        setup_logger(
             filename='%s.log' % str(logger_name),
             output_dir=temp_dir,
-            logging_config=None,
-        ),
-    )
-
-    logging_server.start()
-
-    while True:
-        with port.get_lock():
-            if port.value == -1:
-                time.sleep(0.01)
-            else:
-                break
-
-    logger_port = int(port.value)
-
-    return logging_server, logger_port, stop_logging_server
-
-
-def clean_logger(logging_server, stop_logging_server) -> None:
-    """
-    cleans the logging server created
-    Returns:
-
-    """
-
-    # Clean up the logger
-    if logging_server.is_alive():
-        stop_logging_server.set()
-
-        # We try to join the process, after we sent
-        # the terminate event. Then we try a join to
-        # nicely join the event. In case something
-        # bad happens with nicely trying to kill the
-        # process, we execute a terminate to kill the
-        # process.
-        logging_server.join(timeout=5)
-        logging_server.terminate()
-        del stop_logging_server
-
-
-def run_on_dataset(cocktails, args, seed, budget, config):
-    config = {
-        **config, 
-        'data__keyword': args.dataset_id,
-    }
-    X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
-    dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
-    exp_dir = args.exp_dir / dataset_openml.name
-    temp_dir = exp_dir / "tmp_1"
-    out_dir = exp_dir /  "out_1"
-    backend_kwargs = dict(
-        temporary_directory=temp_dir,
-        output_directory=out_dir,
-        delete_output_folder_after_terminate=False,
-        delete_tmp_folder_after_terminate=False
-    )
-    if not cocktails:
-        backend_kwargs.update({'prefix':'autopytorch_pipeline'})
-    backend = create(
-        **backend_kwargs
-    )
-
-    logging_server, logger_port, stop_logging_server = create_logger(
-        name=dataset_openml.name, 
-        seed=seed,
-        temp_dir=temp_dir)
-    backend.setup_logger(port=logger_port, name="autopytorch_pipeline")
-
-    validator_kwargs = dict(is_classification=True, logger_port=logger_port)
-    if not cocktails:
-        validator_kwargs.update({'seed': seed})
-    validator = TabularInputValidator(
-        **validator_kwargs)
-    validator = validator.fit(
-        X_train=X_train,
-        y_train=y_train,
-        X_test=X_valid,
-        y_test=y_valid
-    )
-    dataset = TabularDataset(
-        X=X_train,
-        Y=y_train,
-        X_test=X_valid,
-        Y_test=y_valid,
-        resampling_strategy=NoResamplingStrategyTypes.no_resampling,
-        validator=validator,
-        seed=seed,
-        dataset_name=dataset_openml.name
-    )
-    search_space_updates, include_updates = get_updates_for_regularization_cocktails()
-    dataset_requirements = get_dataset_requirements(
-                info=dataset.get_required_dataset_info(),
-                include=include_updates,
-                search_space_updates=search_space_updates
+            logging_config=None
         )
-    dataset_properties = dataset.get_dataset_properties(dataset_requirements)
 
-    configuration_space = get_configuration_space(
-        info=dataset.get_required_dataset_info(),
-        include=include_updates,
-        search_space_updates=search_space_updates
-    )
-    configuration_space.seed(seed)
+        # As AutoPyTorch works with distributed process,
+        # we implement a logger server that can receive tcp
+        # pickled messages. They are unpickled and processed locally
+        # under the above logging configuration setting
+        # We need to specify the logger_name so that received records
+        # are treated under the logger_name ROOT logger setting
+        context = multiprocessing.get_context('spawn')
+        self.stop_logging_server_ = context.Event()
+        port = context.Value('l')  # be safe by using a long
+        port.value = -1
 
-    configurations = [configuration_space.sample_configuration() for i in range(args.max_configs)]
+        # "BaseContext" has no attribute "Process" motivates to ignore the attr check
+        self.logging_server_ = context.Process(  # type: ignore [attr-defined]
+            target=start_log_server,
+            kwargs=dict(
+                host='localhost',
+                logname=logger_name,
+                event=self.stop_logging_server_,
+                port=port,
+                filename='%s.log' % str(logger_name),
+                output_dir=temp_dir,
+                logging_config=None,
+            ),
+        )
+
+        self.logging_server_.start()
+
+        while True:
+            with port.get_lock():
+                if port.value == -1:
+                    time.sleep(0.01)
+                else:
+                    break
+
+        self.logger_port_ = int(port.value)
+
+    def clean_logger(
+        self
+    ) -> None:
+        """
+        cleans the logging server created
+        Returns:
+
+        """
+
+        # Clean up the logger
+        if self.logging_server_.is_alive():
+            self.stop_logging_server_.set()
+
+            # We try to join the process, after we sent
+            # the terminate event. Then we try a join to
+            # nicely join the event. In case something
+            # bad happens with nicely trying to kill the
+            # process, we execute a terminate to kill the
+            # process.
+            self.logging_server_.join(timeout=5)
+            self.logging_server_.terminate()
+            del self.stop_logging_server_
+
+    def _create_backend(self) -> Backend:
+        temp_dir = self.exp_dir / f"tmp_{time.time()}"
+        out_dir = self.exp_dir /  f"out_{time.time()}"
+        backend_kwargs = dict(
+            temporary_directory=temp_dir,
+            output_directory=out_dir,
+            delete_output_folder_after_terminate=False,
+            delete_tmp_folder_after_terminate=False
+        )
+        backend = create(
+            **backend_kwargs
+        )
+        backend.setup_logger(port=self.logger_port_, name="autopytorch_pipeline")
+        return backend
+
+    def _setup_experiment(
+        self,
+        config: dict,
+    ) -> Tuple[list[Configuration], Dataset, TabularDataset]:
+
+        dataset = Dataset.fetch(dataset_id=self.dataset_id, seed=self.seed, dataset_name=self.dataset_name, **config)
+
+        validator_kwargs = dict(is_classification=True, logger_port=self.logger_port_)
+
+        self.validator_ = TabularInputValidator(
+            **validator_kwargs)
+        self.validator_ = self.validator_.fit(
+            X_train=dataset.X_train,
+            y_train=dataset.y_train,
+            X_test=dataset.X_valid,
+            y_test=dataset.y_valid
+        )
+        autopytorch_datamnager = TabularDataset(
+            X=dataset.X_train,
+            Y=dataset.y_train,
+            X_test=dataset.X_valid,
+            Y_test=dataset.y_valid,
+            resampling_strategy=NoResamplingStrategyTypes.no_resampling,
+            validator=self.validator_,
+            seed=self.seed,
+            dataset_name=dataset.name
+        )
+        self.search_space_updates_, self.include_updates_ = get_updates_for_regularization_cocktails()
+        dataset_requirements = get_dataset_requirements(
+                    info=autopytorch_datamnager.get_required_dataset_info(),
+                    include=self.include_updates_,
+                    search_space_updates=self.search_space_updates_
+            )
+        self.dataset_properties_ = autopytorch_datamnager.get_dataset_properties(dataset_requirements)
+
+        self.configuration_space_ = get_configuration_space(
+            info=autopytorch_datamnager.get_required_dataset_info(),
+            include=self.include_updates_,
+            search_space_updates=self.search_space_updates_
+        )
+        self.configuration_space_.seed(self.seed)
+        return (
+            self.configuration_space_.sample_configuration(self.max_configs),
+            dataset,
+            autopytorch_datamnager
+        )
+
+    def run_experiment(
+        self,
+        config: dict
+    ):
+        configurations, dataset, autopytorch_dataset = self._setup_experiment(config)
+        run_history = dict()
+        for num_run, configuration in enumerate(configurations, start=1):  # 0 is reserved for refit
+            # Run config on dataset
+            start_time = time.time()
+            print(f"Starting training for {num_run} and config: {config}")
+            final_score = run_on_autopytorch(
+                dataset=copy.copy(autopytorch_dataset),
+                X_test=dataset.X_test,
+                y_test=dataset.y_test,
+                seed=seed,
+                budget=budget,
+                num_run=num_run,
+                backend=self.backend,
+                device=self.device,
+                configuration=configuration,
+                validator=self.validator,
+                logger_port=self.logger_port_,
+                autopytorch_source_dir=args.autopytorch_source_dir,
+                dataset_properties=self.dataset_properties_
+            )
+            duration = time.time()-start_time
+            run_history[num_run] = {
+                'configuration': config.get_dictionary(),
+                'score': final_score,
+                'time': duration
+            }
+            print(f"Finished training with score:{final_score} in {duration}")
+
+
+
+def run_on_dataset(args, seed, budget, config):
+    X_test, y_test, dataset_openml, exp_dir, temp_dir, backend, logging_server, logger_port, stop_logging_server, validator, dataset, dataset_properties, configurations = setup_experiment(args, seed, config=config)
+
+    log_folder = os.path.join(args.exp_dir, "log_test/")
+
+    if args.slurm:
+        total_job_time = args.slurm_job_time #max(time * 1.5, 120) * args.chunk_size
+        slurm_executer = get_executer(
+            partition=args.partition,
+            log_folder=log_folder,
+            total_job_time_secs=total_job_time,
+            gpu=args.device!="cpu")
 
     # number of configurations each worker will evaluate on
-    n_config_per_chunk = np.ceil(args.max_configs / args.nr_worker)
+    # n_config_per_chunk = np.ceil(args.max_configs / args.nr_workers)
     run_history = dict()
-    for i, subset_configurations in enumerate(chunks(configurations, n_config_per_chunk)):
+    for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
         try:
-            subset_run_history = run_random_search(
+            subset_run_history = slurm_executer.submit(run_random_search,
                 args,
                 seed,
                 budget,
@@ -319,6 +339,29 @@ parser.add_argument(
     type=int,
     default=10
 )
+parser.add_argument(
+    '--slurm',
+    action='store_true',
+    help='True if run parallely on slurm, false otherwise'
+)
+parser.add_argument(
+    "--partition",
+    type=str,
+    default="bosch_cpu-cascadelake"
+)
+parser.add_argument(
+    '--slurm_job_time',
+    type=int,
+    default=60,
+    help='Time on slurm in minutes')
+
+# parser.add_argument(
+#     '--chunk_size',
+#     type=int,
+#     default=4
+# )
+
+
 if __name__ == '__main__':
     args = parser.parse_args()
     seed = args.seed
@@ -338,6 +381,6 @@ if __name__ == '__main__':
     config = {**config, **autopytorch_config, **CONFIG_DEFAULT}
     
     
-    final_result = run_on_dataset(cocktails, args, seed, budget, config)
+    final_result = run_on_dataset(args, seed, budget, config)
     print(f"Finished search with best score: {final_result}")
 

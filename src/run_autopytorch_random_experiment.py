@@ -217,7 +217,7 @@ class BaseDatasetRunner(object):
                 backend=self.backend,
                 device=self.device,
                 configuration=configuration,
-                validator=self.validator,
+                validator=self.validator_,
                 logger_port=self.logger_port_,
                 autopytorch_source_dir=args.autopytorch_source_dir,
                 dataset_properties=self.dataset_properties_

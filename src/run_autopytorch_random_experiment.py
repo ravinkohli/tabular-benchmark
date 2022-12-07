@@ -225,8 +225,10 @@ def run_on_dataset(cocktails, args, seed, budget, config):
 
     configurations = [configuration_space.sample_configuration() for i in range(args.max_configs)]
 
+    # number of configurations each worker will evaluate on
+    n_config_per_chunk = np.ceil(args.max_configs / args.nr_worker)
     run_history = dict()
-    for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
+    for i, subset_configurations in enumerate(chunks(configurations, n_config_per_chunk)):
         try:
             subset_run_history = run_random_search(
                 args,

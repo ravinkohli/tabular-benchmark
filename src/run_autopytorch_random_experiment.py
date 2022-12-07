@@ -32,6 +32,12 @@ except ModuleNotFoundError:
     from autoPyTorch.utils.backend import Backend, create
 
 
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
 def run_random_search(
     args,
     seed,
@@ -151,71 +157,15 @@ def clean_logger(logging_server, stop_logging_server) -> None:
         logging_server.join(timeout=5)
         logging_server.terminate()
         del stop_logging_server
-    
-############################################################################
-# Data Loading
-# ============
 
-parser = argparse.ArgumentParser(
-    "Run autopytorch pipeline"
-)
-parser.add_argument(
-    '--device',
-    type=str,
-    default="cpu"
-)
-parser.add_argument(
-    '--dataset_id',
-    type=int,
-    default=40981
-)
-parser.add_argument(
-    '--autopytorch_source_dir',
-    type=str,
-    default="/home/rkohli/tabular-benchmark/apt_reg_cocktails/Auto-PyTorch"
-)
-parser.add_argument(
-    '--exp_dir',
-    type=Path,
-    default="/home/rkohli/tabular-benchmark/autopytorch_tmp"
-)
-parser.add_argument(
-    '--max_configs',
-    type=int,
-    default=10
-)
-parser.add_argument(
-    '--seed',
-    type=int,
-    default=1
-)
-parser.add_argument(
-    '--epochs',
-    type=int,
-    default=105
-)
 
-if __name__ == '__main__':
-    args = parser.parse_args()
-    seed = args.seed
-    budget = args.epochs
-
-    CONFIG_DEFAULT = {"train_prop": 0.70,
-                      "val_test_prop": 0.3,
-                      "max_val_samples": 50000,
-                      "max_test_samples": 50000,
-                      "max_train_samples": None,
-                      # "max_test_samples": None,
-    }
+def run_on_dataset(cocktails, args, seed, budget, config):
     config = {
-        'data__categorical': False,
+        **config, 
         'data__keyword': args.dataset_id,
-        'data__method_name': 'openml',
-        'data__impute_nans': True}
-    config = {**config, **autopytorch_config, **CONFIG_DEFAULT}
+    }
     X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
     dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
-
     exp_dir = args.exp_dir / dataset_openml.name
     temp_dir = exp_dir / "tmp_1"
     out_dir = exp_dir /  "out_1"
@@ -275,26 +225,30 @@ if __name__ == '__main__':
 
     configurations = [configuration_space.sample_configuration() for i in range(args.max_configs)]
 
-    start_time = time.time()
-    try:
-        run_history = run_random_search(
-            args,
-            seed,
-            budget,
-            X_test,
-            y_test,
-            backend,
-            logger_port,
-            validator,
-            dataset,
-            dataset_properties,
-            configurations
-        )
-        
-        json.dump(run_history, open(temp_dir / 'run_history.json', 'w'))
-    except Exception as e:
-        print(f"Random Search failed due to {repr(e)}")
-        print(traceback.format_exc())
+    run_history = dict()
+    for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
+        try:
+            subset_run_history = run_random_search(
+                args,
+                seed,
+                budget,
+                X_test,
+                y_test,
+                backend,
+                logger_port,
+                validator,
+                dataset,
+                dataset_properties,
+                subset_configurations,
+                start=i*args.nr_workers + 1
+            )
+            
+            run_history = {**run_history, **subset_run_history}
+
+            json.dump(run_history, open(temp_dir / 'run_history.json', 'w'))
+        except Exception as e:
+            print(f"Random Search failed due to {repr(e)}")
+            print(traceback.format_exc())
 
     sorted_run_history = sorted(run_history, key=lambda x: run_history[x]['score']['val'], reverse=True)
     print(f"Sorted run history: {sorted_run_history}")
@@ -305,7 +259,6 @@ if __name__ == '__main__':
     options.pop('exp_dir', None)
     options.pop('autopytorch_source_dir', None)
     final_result = {
-        'duration': time.time() - start_time,
         'test_score': incumbent_result['score']['test'],
         'train_score': incumbent_result['score']['train'],
         'dataset_name': dataset_openml.name,
@@ -314,4 +267,75 @@ if __name__ == '__main__':
         **options
     }
     json.dump(final_result, open(exp_dir / 'result.json', 'w'))
+    return final_result
+
+
+############################################################################
+# Data Loading
+# ============
+
+parser = argparse.ArgumentParser(
+    "Run autopytorch pipeline"
+)
+parser.add_argument(
+    '--device',
+    type=str,
+    default="cpu"
+)
+parser.add_argument(
+    '--dataset_id',
+    type=int,
+    default=40981
+)
+parser.add_argument(
+    '--autopytorch_source_dir',
+    type=str,
+    default="/home/rkohli/tabular-benchmark/apt_reg_cocktails/Auto-PyTorch"
+)
+parser.add_argument(
+    '--exp_dir',
+    type=Path,
+    default="/home/rkohli/tabular-benchmark/autopytorch_tmp"
+)
+parser.add_argument(
+    '--max_configs',
+    type=int,
+    default=10
+)
+parser.add_argument(
+    '--seed',
+    type=int,
+    default=1
+)
+parser.add_argument(
+    '--epochs',
+    type=int,
+    default=105
+)
+parser.add_argument(
+    '--nr_workers',
+    type=int,
+    default=10
+)
+if __name__ == '__main__':
+    args = parser.parse_args()
+    seed = args.seed
+    budget = args.epochs
+
+    CONFIG_DEFAULT = {"train_prop": 0.70,
+                      "val_test_prop": 0.3,
+                      "max_val_samples": 50000,
+                      "max_test_samples": 50000,
+                      "max_train_samples": None,
+                      # "max_test_samples": None,
+    }
+    config = {
+        'data__categorical': False,
+        'data__method_name': 'openml',
+        'data__impute_nans': True}
+    config = {**config, **autopytorch_config, **CONFIG_DEFAULT}
+    
+    
+    final_result = run_on_dataset(cocktails, args, seed, budget, config)
+    print(f"Finished search with best score: {final_result}")
 

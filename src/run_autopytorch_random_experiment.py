@@ -116,7 +116,7 @@ def run_random_search(
                 print(f"Waiting for training to finish for {num_run} with {job.job_id}")
                 try:
                     run_history[num_run]['cost'] = job.result()
-                    print(f"Finished training with score:{run_history[num_run]['cost']} in {run_history[num_run]['cost']['duration']}")
+                    print(f"Finished training with score: {run_history[num_run]['cost']} in {run_history[num_run]['cost']['duration']}")
                 except Exception as e:
                     print(f"Failed to finish job: {job.job_id} with {repr(e)} and \nConfiguration: {current_runs[num_run]['configuration']}")
                     run_history[num_run]['cost'] = {'train': 0, 'test': 0, 'val': 0, 'duration': 0}
@@ -265,7 +265,7 @@ def run_on_dataset(cocktails, args, seed, budget, config):
     )
     configuration_space.seed(seed)
 
-    configurations = [configuration_space.sample_configuration() for i in range(args.max_configs)]
+    configurations = [configuration_space.get_default_configuration()] + configuration_space.sample_configuration(args.max_configs - 1)
 
     # number of configurations each worker will evaluate on
     try:
@@ -381,9 +381,10 @@ if __name__ == '__main__':
 
     CONFIG_DEFAULT = {"train_prop": 0.70,
                       "val_test_prop": 0.3,
-                      "max_val_samples": 50000,
-                      "max_test_samples": 50000,
-                      "max_train_samples": None,
+                      "max_val_samples": None,
+                      "max_test_samples": None,
+                      "max_train_samples": 15000,
+                      "balance": True
                       # "max_test_samples": None,
     }
     config = {

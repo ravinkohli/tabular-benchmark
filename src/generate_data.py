@@ -27,7 +27,7 @@ def balance_data(x, y):
     y[indices_first_class] = 0
     y[indices_second_class] = 1
 
-    return x.iloc[total_indices], y
+    return x.iloc[total_indices] if hasattr(x, 'iloc') else x, y
 
 def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, categorical=False, regression=False, balance=False, rng=None) -> pd.DataFrame:
     """
@@ -49,6 +49,8 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     print("{} categorical columns".format(sum(categorical_indicator)))
     print("{} columns".format(X.shape[1]))
     y_encoder = LabelEncoder()
+
+    X = pd.DataFrame(OrdinalEncoder().fit_transform(X))
 
     # remove missing values
     assert remove_nans or impute_nans, "You need to remove or impute nans"
@@ -77,7 +79,7 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
 
 
     # Replace categorical values by integers for each categorical column
-    X = pd.DataFrame(OrdinalEncoder().fit_transform(X))
+    # X = pd.DataFrame(OrdinalEncoder().fit_transform(X))
     # X.iloc[:, i].astype('category')
     # X.iloc[:, i] = X.iloc[:, i].cat.codes
     # X.iloc[:, i] = X.iloc[:, i].astype('int64')
@@ -103,7 +105,7 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
         X, y = balance_data(X, y)
 
     X = X.to_numpy()
-
+    
     if categorical:
         return X, y, categorical_indicator
 

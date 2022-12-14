@@ -55,11 +55,12 @@ def run_random_search(
 ):
     run_history = dict()
     total_job_time = args.slurm_job_time_secs #max(time * 1.5, 120) * args.chunk_size
-    slurm_executer = get_executer(
-        partition=args.partition,
-        log_folder=slurm_log_folder,
-        total_job_time_secs=total_job_time,
-        gpu=args.device!="cpu")
+    if args.slurm:
+        slurm_executer = get_executer(
+            partition=args.partition,
+            log_folder=slurm_log_folder,
+            total_job_time_secs=total_job_time,
+            gpu=args.device!="cpu")
     for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
         current_runs = dict()
         for num_run, config in enumerate(subset_configurations, start=i*args.nr_workers + 1):  # 0 is reserved for refit
@@ -208,6 +209,7 @@ def run_on_dataset(cocktails, args, seed, budget, config):
     }
     X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
     dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
+    print(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
     exp_dir = args.exp_dir / dataset_openml.name
     temp_dir = exp_dir / "tmp_1"
     out_dir = exp_dir /  "out_1"
@@ -227,6 +229,8 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         name=dataset_openml.name, 
         seed=seed,
         temp_dir=temp_dir)
+    logger = get_named_client_logger(name=f"AutoPyTorch:{dataset_openml.name}:{seed}")
+    logger.debug(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
     backend.setup_logger(port=logger_port, name="autopytorch_pipeline")
 
     validator_kwargs = dict(is_classification=True, logger_port=logger_port)
@@ -265,7 +269,10 @@ def run_on_dataset(cocktails, args, seed, budget, config):
     )
     configuration_space.seed(seed)
 
-    configurations = [configuration_space.get_default_configuration()] + configuration_space.sample_configuration(args.max_configs - 1)
+    configurations = [configuration_space.get_default_configuration()]
+    if args.max_configs > 1:
+        sampled_configurations = configuration_space.sample_configuration(args.max_configs - 1)
+        configurations += sampled_configurations if isinstance(sampled_configurations, list) else [sampled_configurations]
 
     # number of configurations each worker will evaluate on
     try:

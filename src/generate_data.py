@@ -40,6 +40,7 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     #     task = openml.tasks.get_task(openml_task_id)  # download the OpenML task
     #     dataset = task.get_dataset()
     # elif openml_dataset_id is not None:
+    openml.datasets.functions._get_dataset_parquet = lambda x: None
     dataset = openml.datasets.get_dataset(keyword)
     # retrieve categorical data for encoding
     X, y, categorical_indicator, attribute_names = dataset.get_data(

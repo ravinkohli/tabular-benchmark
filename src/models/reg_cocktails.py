@@ -175,14 +175,14 @@ def get_updates_for_regularization_cocktails():
     search_space_updates.append(
         node_name='imputer',
         hyperparameter='numerical_strategy',
-        value_range=['mean'],
-        default_value='mean',
+        value_range=['median'],
+        default_value='median',
     )
     search_space_updates.append(
         node_name='scaler',
         hyperparameter='__choice__',
-        value_range=['NoScaler'],
-        default_value='NoScaler',
+        value_range=['StandardScaler'],
+        default_value='StandardScaler',
     )
 
     search_space_updates.append(
@@ -340,8 +340,12 @@ def run_on_autopytorch(
 
     y_train_pred = pipeline.predict(dataset.train_tensors[0], batch_size=512)
     train_score = calculate_score(dataset.train_tensors[1], y_train_pred, metrics=metrics, task_type=dataset_properties.get("task_type"))[metric_name]
-    y_val_pred = pipeline.predict(dataset.test_tensors[0], batch_size=512)
-    val_score = calculate_score(dataset.test_tensors[1], y_val_pred, metrics=metrics, task_type=dataset_properties.get("task_type"))[metric_name]
+    y_val_pred = None
+    if dataset.test_tensors[0] is not None:
+        y_val_pred = pipeline.predict(dataset.test_tensors[0], batch_size=512)
+        val_score = calculate_score(dataset.test_tensors[1], y_val_pred, metrics=metrics, task_type=dataset_properties.get("task_type"))[metric_name]
+    else:
+        val_score = 0
     if X_test is not None:
         X_test_transformed, y_test_transformed = validator.transform(X_test, y_test)
         y_test_pred = pipeline.predict(X_test_transformed, batch_size=512)

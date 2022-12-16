@@ -12,11 +12,14 @@ from ConfigSpace import Configuration
 import openml
 import numpy as np
 
-import sklearn.model_selection
+from sklearn.model_selection import train_test_split
 from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
 from generate_dataset_pipeline import generate_dataset
 from configs.model_configs.autopytorch_config import autopytorch_config_default
 from reproduce_utils import get_executer
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, MaxAbsScaler, OneHotEncoder
+# from run_reproduce import get_preprocessed_train_test_split
 
 from autoPyTorch.utils.logging_ import setup_logger, get_named_client_logger, start_log_server
 
@@ -24,6 +27,7 @@ from autoPyTorch.data.tabular_validator import TabularInputValidator
 from autoPyTorch.datasets.tabular_dataset import TabularDataset
 from autoPyTorch.datasets.resampling_strategy import NoResamplingStrategyTypes
 from autoPyTorch.utils.pipeline import get_dataset_requirements, get_configuration_space
+from preprocessing.preprocessing import preprocessing
 
 cocktails = False
 try:
@@ -37,6 +41,64 @@ def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
+
+def get_preprocessed_train_test_split(X, y, categorical_indicator, resnet_config, train_prop, numeric_transformer, numeric_transformer_sparse, preprocessor, preprocessor_sparse, iter):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_prop,
+                                                                random_state=np.random.RandomState(iter))
+    X_train, X_test, y_train, y_test = np.array(X_train), np.array(X_test), np.array(
+                y_train), np.array(y_test)
+    if resnet_config["regression"] == True:
+        y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
+        y_train, y_test = y_train.astype(np.float32), y_test.astype(np.float32)
+    if X_test.shape[0] > 30000:  # for speed
+        indices = np.random.choice(X_test.shape[0], 30000, replace=False)
+        try:
+            X_test = X_test.iloc[indices]
+        except:
+            X_test = X_test[indices]
+        y_test = y_test[indices]
+    try:
+        X_train_one_hot = preprocessor.fit_transform(X_train)
+        X_test_one_hot = preprocessor.transform(X_test)
+        X_train_no_one_hot = np.zeros_like(X_train)
+        X_test_no_one_hot = np.zeros_like(X_test)
+                # not column transformer to preserve order
+        for i in range(X_train.shape[1]):
+            if categorical_indicator[i]:
+                X_train_no_one_hot[:, i] = X_train[:, i]
+                X_test_no_one_hot[:, i] = X_test[:, i]
+            else:
+                X_train_no_one_hot[:, i] = numeric_transformer.fit_transform(
+                            X_train[:, i].reshape(-1, 1)).reshape(-1)
+                X_test_no_one_hot[:, i] = numeric_transformer.transform(
+                            X_test[:, i].reshape(-1, 1)).reshape(-1)
+
+    except:
+        print("trying MaxAbsScaler")
+        X_train_one_hot = preprocessor_sparse.fit_transform(X_train)
+        X_test_one_hot = preprocessor_sparse.transform(X_test)
+        X_train_no_one_hot = np.zeros_like(X_train)
+        X_test_no_one_hot = np.zeros_like(X_test)
+        for i in range(X_train.shape[1]):
+            if categorical_indicator[i]:
+                X_train_no_one_hot[:, i] = X_train[:, i]
+                X_test_no_one_hot[:, i] = X_test[:, i]
+            else:
+                X_train_no_one_hot[:, i] = numeric_transformer_sparse.fit_transform(
+                            X_train[:, i].reshape(-1, 1)).reshape(-1)
+                X_test_no_one_hot[:, i] = numeric_transformer_sparse.transform(
+                            X_test[:, i].reshape(-1, 1)).reshape(-1)
+
+    y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
+    X_train_one_hot, X_test_one_hot = np.array(X_train_one_hot), np.array(X_test_one_hot)
+    X_train_no_one_hot, X_test_no_one_hot = np.array(X_train_no_one_hot), np.array(
+                X_test_no_one_hot)
+    X_train_one_hot, X_test_one_hot = X_train_one_hot.astype(np.float32), X_test_one_hot.astype(
+                np.float32)
+    X_train_no_one_hot, X_test_no_one_hot = X_train_no_one_hot.astype(
+                np.float32), X_test_no_one_hot.astype(np.float32)
+        
+    return y_train,y_test,X_train_one_hot,X_test_one_hot,X_train_no_one_hot,X_test_no_one_hot
 
 
 def run_random_search(
@@ -202,17 +264,59 @@ def clean_logger(logging_server, stop_logging_server) -> None:
         del stop_logging_server
 
 
-def run_on_dataset(cocktails, args, seed, budget, config):
-    config = {
-        **config, 
-        'data__keyword': args.dataset_id,
-    }
-    X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
-    dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
-    print(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
+def run_on_dataset(cocktails, args, seed, budget, dataset_id):
+    dataset_openml = openml.datasets.get_dataset(dataset_id=dataset_id)
+    # retrieve categorical data for encoding
+    X, y, categorical_indicator, attribute_names = dataset_openml.get_data(
+        dataset_format="dataframe", target=dataset_openml.default_target_attribute
+    )
+    X, y, categorical_indicator, num_high_cardinality, num_columns_missing, num_rows_missing, \
+    num_categorical_columns, n_pseudo_categorical, original_n_samples, original_n_features = \
+        preprocessing(X, y, categorical_indicator, categorical=False,
+                        regression=False, transformation=None)
+    train_prop = 0.7
+    train_prop = min(15000 / X.shape[0], train_prop)
+    numeric_transformer = StandardScaler()
+    numeric_transformer_sparse = MaxAbsScaler()
+    categorical_transformer = OneHotEncoder(handle_unknown="ignore", sparse=False)
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer, [i for i in range(X.shape[1]) if not categorical_indicator[i]]),
+            ("cat", categorical_transformer, [i for i in range(X.shape[1]) if categorical_indicator[i]]),
+        ]
+    )
+    preprocessor_sparse = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer_sparse,
+                [i for i in range(X.shape[1]) if not categorical_indicator[i]]),
+            ("cat", categorical_transformer, [i for i in range(X.shape[1]) if categorical_indicator[i]]),
+        ]
+    )
+
+    y_train, y_test, _, _, X_train_no_one_hot, X_test_no_one_hot = get_preprocessed_train_test_split(
+                X,
+                y,
+                categorical_indicator,
+                {'regression': False},
+                train_prop,
+                numeric_transformer,
+                numeric_transformer_sparse,
+                preprocessor,
+                preprocessor_sparse,
+                1
+            )
+    # config = {
+    #     **config, 
+    #     'data__keyword': args.dataset_id,
+    # }
+    # X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
+    print(f"Running {dataset_openml.name} with train shape: {X_train_no_one_hot.shape}")
     exp_dir = args.exp_dir / dataset_openml.name
-    temp_dir = exp_dir / "tmp_1"
-    out_dir = exp_dir /  "out_1"
+    result_dict = json.load(open(exp_dir / "result.json", "r"))
+
+    temp_dir = exp_dir / "tmp_refit"
+    out_dir = exp_dir /  "out_refit"
     backend_kwargs = dict(
         temporary_directory=temp_dir,
         output_directory=out_dir,
@@ -230,7 +334,6 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         seed=seed,
         temp_dir=temp_dir)
     logger = get_named_client_logger(name=f"AutoPyTorch:{dataset_openml.name}:{seed}", port=logger_port)
-    logger.debug(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
     backend.setup_logger(port=logger_port, name="autopytorch_pipeline")
 
     validator_kwargs = dict(is_classification=True, logger_port=logger_port)
@@ -239,16 +342,16 @@ def run_on_dataset(cocktails, args, seed, budget, config):
     validator = TabularInputValidator(
         **validator_kwargs)
     validator = validator.fit(
-        X_train=X_train,
+        X_train=X_train_no_one_hot,
         y_train=y_train,
-        X_test=X_valid,
-        y_test=y_valid
+        # X_test=X_valid,
+        # y_test=y_valid
     )
     dataset = TabularDataset(
-        X=X_train,
+        X=X_train_no_one_hot,
         Y=y_train,
-        X_test=X_valid,
-        Y_test=y_valid,
+        # X_test=X_valid,
+        # Y_test=y_valid,
         resampling_strategy=NoResamplingStrategyTypes.no_resampling,
         validator=validator,
         seed=seed,
@@ -269,47 +372,41 @@ def run_on_dataset(cocktails, args, seed, budget, config):
     )
     configuration_space.seed(seed)
 
-    configurations = [configuration_space.get_default_configuration()]
-    if args.max_configs > 1:
-        sampled_configurations = configuration_space.sample_configuration(args.max_configs - 1)
-        configurations += sampled_configurations if isinstance(sampled_configurations, list) else [sampled_configurations]
-
+    configuration = Configuration(configuration_space, result_dict["configuration"])
     # number of configurations each worker will evaluate on
     try:
-        run_history = run_random_search(
-            args,
-            seed,
-            budget,
-            X_test,
-            y_test,
-            backend,
-            logger_port,
-            validator,
-            dataset,
-            dataset_properties,
-            configurations=configurations,
-            slurm_log_folder=args.exp_dir / "log_test"
+        final_score = run_on_autopytorch(
+            dataset=copy.copy(dataset),
+            X_test=X_test_no_one_hot,
+            y_test=y_test,
+            seed=seed,
+            budget=budget,
+            num_run=0,
+            backend=backend,
+            device=args.device,
+            configuration=configuration,
+            validator=validator,
+            logger_port=logger_port,
+            autopytorch_source_dir=args.autopytorch_source_dir,
+            dataset_properties=dataset_properties
         )
 
-        json.dump(run_history, open(temp_dir / 'run_history.json', 'w'))
-        sorted_run_history = sorted(run_history, key=lambda x: run_history[x]['cost']['val'], reverse=True)
-        print(f"Sorted run history: {sorted_run_history}")
-        incumbent_result = run_history[sorted_run_history[0]]
+
         options = vars(args)
         options.pop('exp_dir', None)
         options.pop('autopytorch_source_dir', None)
         final_result = {
-            'test_score': incumbent_result['cost']['test'],
-            'train_score': incumbent_result['cost']['train'],
-            'val_score': incumbent_result['cost']['val'],
+            'test_score': final_score['test'],
+            'train_score': final_score['train'],
+            'val_score': final_score['val'],
             'dataset_name': dataset_openml.name,
-            'dataset_id': args.dataset_id,
-            'configuration': incumbent_result['configuration'],
+            'dataset_id': dataset_id,
+            'configuration': configuration,
             **options
         }
-        json.dump(final_result, open(exp_dir / 'result.json', 'w'))
+        json.dump(final_result, open(exp_dir / 'result_refit.json', 'w'))
     except Exception as e:
-        print(f"Random Search failed due to {repr(e)}")
+        print(f"Refit failed due to {repr(e)}")
         print(traceback.format_exc())
     finally:
         clean_logger(logging_server=logging_server, stop_logging_server=stop_logging_server)
@@ -328,11 +425,6 @@ parser.add_argument(
     '--device',
     type=str,
     default="cpu"
-)
-parser.add_argument(
-    '--dataset_id',
-    type=int,
-    default=40981
 )
 parser.add_argument(
     '--autopytorch_source_dir',
@@ -386,21 +478,9 @@ if __name__ == '__main__':
     seed = args.seed
     budget = args.epochs
 
-    CONFIG_DEFAULT = {"train_prop": 0.70,
-                      "val_test_prop": 0.3,
-                      "max_val_samples": None,
-                      "max_test_samples": None,
-                      "max_train_samples": 10000,
-                      "balance": True
-                      # "max_test_samples": None,
-    }
-    config = {
-        'data__categorical': False,
-        'data__method_name': 'openml',
-        'data__impute_nans': True}
-    config = {**config, **autopytorch_config_default, **CONFIG_DEFAULT}
     
-    
-    final_result = run_on_dataset(cocktails, args, seed, budget, config)
-    print(f"Finished search with best score: {final_result}")
+    final_benchmark_dataset_ids = [44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131, 44089, 44090, 44091]
+    for dataset_id in final_benchmark_dataset_ids:
+        final_result = run_on_dataset(cocktails, args, seed, budget, dataset_id=dataset_id)
+        print(f"Refitted with best score: {final_result}")
 

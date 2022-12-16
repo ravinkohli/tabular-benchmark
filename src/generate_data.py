@@ -69,8 +69,8 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     elif impute_nans:
         from sklearn.impute import SimpleImputer
         # Impute numerical columns with mean and categorical columns with most frequent
-        categorical_imputer = SimpleImputer(strategy="most_frequent")
-        numerical_imputer = SimpleImputer(strategy="mean")
+        categorical_imputer = SimpleImputer(strategy="constant")
+        numerical_imputer = SimpleImputer(strategy="median")
         # check that there a > 0 categorical columns
         if sum(categorical_indicator) > 0:
             X.iloc[:, categorical_indicator] = categorical_imputer.fit_transform(X.iloc[:, categorical_indicator])

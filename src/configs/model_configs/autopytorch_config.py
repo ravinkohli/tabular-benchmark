@@ -8,7 +8,7 @@ autopytorch_config = {
     "transform__0__apply_on": "numerical",
 }
 
-autopytorch_config_default = autopytorch_config.copy()
+autopytorch_config_default = {}
 # autopytorch_config_default["model__batch_size"] = {"value": 512}
 # autopytorch_config_default["transformed_target"] = {"value": True}
 # Configuration:

@@ -60,7 +60,9 @@ def run_random_search(
             partition=args.partition,
             log_folder=slurm_log_folder,
             total_job_time_secs=total_job_time,
-            gpu=args.device!="cpu")
+            gpu=args.device!="cpu",
+            mem_per_cpu=15000,
+            cpu_nodes=1)
     for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
         current_runs = dict()
         for num_run, config in enumerate(subset_configurations, start=i*args.nr_workers + 1):  # 0 is reserved for refit

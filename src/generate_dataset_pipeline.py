@@ -112,3 +112,31 @@ def generate_dataset(config, rng):
     x_train, x_val, x_test, y_train, y_val, y_test = transform_data(x_train, x_val, x_test, y_train, y_val, y_test, config, rng,
                                                                     categorical_indicator=categorical_indicator)
     return x_train, x_val, x_test, y_train, y_val, y_test, categorical_indicator
+
+
+def generate_dataset_smac(config, rng):
+    data = generate_data(config, rng)
+    if data is None:
+        return None
+    categorical_indicator = None
+    if len(data) == 3:
+        x, y, categorical_indicator = data
+    #if "data__categorical" in config.keys() and config["data__categorical"]:
+    #    x, y, categorical_indicator = data
+    elif len(data) == 2: #if generate data returns x, y #TODO something cleaner
+        x, y = data
+        x = x.astype(np.float32) #FIXME
+    else:
+        x = data
+        x = x.astype(np.float32)
+        y = generate_target(x, config, rng)
+
+    x_train, x_val, x_test, y_train, y_val, y_test = data_to_train_test(x, y, config, rng=rng)
+
+    train_val_split = x_val.shape[0] / (x_train.shape[0] + x_val.shape[0])
+    
+    train_size = (x_train.shape[0] + x_val.shape[0]) / x.shape[0]
+
+    X_train, X_test, y_train, y_test = train_test_split(x, y, train_size=train_size)
+
+    return X_train, X_test, y_train, y_test, categorical_indicator, train_val_split

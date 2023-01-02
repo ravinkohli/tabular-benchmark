@@ -50,10 +50,12 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     print("{} categorical columns".format(sum(categorical_indicator)))
     print("{} columns".format(X.shape[1]))
     y_encoder = LabelEncoder()
+    # Replace categorical values by integers for each categorical column
+    for i, categorical in enumerate(categorical_indicator):
+        X.iloc[:, i] = X.iloc[:, i].astype('category')
+        X.iloc[:, i] = X.iloc[:, i].cat.codes
+        X.iloc[:, i] = X.iloc[:, i].astype('int64')
 
-    X = pd.DataFrame(OrdinalEncoder().fit_transform(X))
-
-    # remove missing values
     assert remove_nans or impute_nans, "You need to remove or impute nans"
     if remove_nans:
         missing_rows_mask = X.isnull().any(axis=1)
@@ -68,9 +70,12 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
             return None
     elif impute_nans:
         from sklearn.impute import SimpleImputer
+        # Autopytorch preprocessing
+        # categorical_imputer = SimpleImputer(strategy="constant")
+        # numerical_imputer = SimpleImputer(strategy="median")
         # Impute numerical columns with mean and categorical columns with most frequent
-        categorical_imputer = SimpleImputer(strategy="constant")
-        numerical_imputer = SimpleImputer(strategy="median")
+        categorical_imputer = SimpleImputer(strategy="most_frequent")
+        numerical_imputer = SimpleImputer(strategy="mean")
         # check that there a > 0 categorical columns
         if sum(categorical_indicator) > 0:
             X.iloc[:, categorical_indicator] = categorical_imputer.fit_transform(X.iloc[:, categorical_indicator])

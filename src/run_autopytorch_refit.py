@@ -11,6 +11,7 @@ import traceback
 from ConfigSpace import Configuration
 import openml
 import numpy as np
+import pandas as pd
 
 from sklearn.model_selection import train_test_split
 from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
@@ -101,92 +102,6 @@ def get_preprocessed_train_test_split(X, y, categorical_indicator, resnet_config
     return y_train,y_test,X_train_one_hot,X_test_one_hot,X_train_no_one_hot,X_test_no_one_hot
 
 
-def run_random_search(
-    args,
-    seed,
-    budget,
-    X_test,
-    y_test,
-    backend,
-    logger_port,
-    validator,
-    dataset,
-    dataset_properties,
-    configurations,
-    slurm_log_folder
-):
-    run_history = dict()
-    total_job_time = args.slurm_job_time_secs #max(time * 1.5, 120) * args.chunk_size
-    if args.slurm:
-        slurm_executer = get_executer(
-            partition=args.partition,
-            log_folder=slurm_log_folder,
-            total_job_time_secs=total_job_time,
-            gpu=args.device!="cpu")
-    for i, subset_configurations in enumerate(chunks(configurations, args.nr_workers)):
-        current_runs = dict()
-        for num_run, config in enumerate(subset_configurations, start=i*args.nr_workers + 1):  # 0 is reserved for refit
-            # Run config on dataset
-            print(f"Starting training for {num_run} and config: {config}")
-            if args.slurm:
-                job = slurm_executer.submit(run_on_autopytorch,
-                    dataset=copy.copy(dataset),
-                    X_test=X_test,
-                    y_test=y_test,
-                    seed=seed,
-                    budget=budget,
-                    num_run=num_run,
-                    backend=backend,
-                    device=args.device,
-                    configuration=config,
-                    validator=validator,
-                    logger_port=logger_port,
-                    autopytorch_source_dir=args.autopytorch_source_dir,
-                    dataset_properties=dataset_properties
-                )
-                print(f"Submitted training for {num_run} with job_id: {job.job_id}")
-                current_runs[num_run] = {
-                    'configuration': config.get_dictionary(),
-                    'cost': job
-                }
-            else:
-                final_score = run_on_autopytorch(
-                    dataset=copy.copy(dataset),
-                    X_test=X_test,
-                    y_test=y_test,
-                    seed=seed,
-                    budget=budget,
-                    num_run=num_run,
-                    backend=backend,
-                    device=args.device,
-                    configuration=config,
-                    validator=validator,
-                    logger_port=logger_port,
-                    autopytorch_source_dir=args.autopytorch_source_dir,
-                    dataset_properties=dataset_properties
-                )
-                run_history[num_run] = {
-                    'configuration': config.get_dictionary(),
-                    'cost': final_score,
-                }
-                print(f"Finished training with score:{final_score} in {final_score['duration']}")
-        if args.slurm:
-            for num_run in current_runs:
-                if num_run not in run_history:
-                    run_history[num_run] = dict()
-                run_history[num_run]['configuration'] = current_runs[num_run]['configuration']
-                job = current_runs[num_run]['cost']
-                print(f"Waiting for training to finish for {num_run} with {job.job_id}")
-                try:
-                    run_history[num_run]['cost'] = job.result()
-                    print(f"Finished training with score: {run_history[num_run]['cost']} in {run_history[num_run]['cost']['duration']}")
-                except Exception as e:
-                    print(f"Failed to finish job: {job.job_id} with {repr(e)} and \nConfiguration: {current_runs[num_run]['configuration']}")
-                    run_history[num_run]['cost'] = {'train': 0, 'test': 0, 'val': 0, 'duration': 0}
-
-    return run_history
-
-
 def create_logger(
     name: str,
     seed: int,
@@ -265,47 +180,7 @@ def clean_logger(logging_server, stop_logging_server) -> None:
 
 
 def run_on_dataset(cocktails, args, seed, budget, dataset_id):
-    dataset_openml = openml.datasets.get_dataset(dataset_id=dataset_id)
-    # retrieve categorical data for encoding
-    X, y, categorical_indicator, attribute_names = dataset_openml.get_data(
-        dataset_format="dataframe", target=dataset_openml.default_target_attribute
-    )
-    X, y, categorical_indicator, num_high_cardinality, num_columns_missing, num_rows_missing, \
-    num_categorical_columns, n_pseudo_categorical, original_n_samples, original_n_features = \
-        preprocessing(X, y, categorical_indicator, categorical=False,
-                        regression=False, transformation=None)
-    train_prop = 0.7
-    train_prop = min(15000 / X.shape[0], train_prop)
-    numeric_transformer = StandardScaler()
-    numeric_transformer_sparse = MaxAbsScaler()
-    categorical_transformer = OneHotEncoder(handle_unknown="ignore", sparse=False)
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", numeric_transformer, [i for i in range(X.shape[1]) if not categorical_indicator[i]]),
-            ("cat", categorical_transformer, [i for i in range(X.shape[1]) if categorical_indicator[i]]),
-        ]
-    )
-    preprocessor_sparse = ColumnTransformer(
-        transformers=[
-            ("num", numeric_transformer_sparse,
-                [i for i in range(X.shape[1]) if not categorical_indicator[i]]),
-            ("cat", categorical_transformer, [i for i in range(X.shape[1]) if categorical_indicator[i]]),
-        ]
-    )
-
-    y_train, y_test, _, _, X_train_no_one_hot, X_test_no_one_hot = get_preprocessed_train_test_split(
-                X,
-                y,
-                categorical_indicator,
-                {'regression': False},
-                train_prop,
-                numeric_transformer,
-                numeric_transformer_sparse,
-                preprocessor,
-                preprocessor_sparse,
-                1
-            )
+    dataset_openml, y_train, y_test, X_train_no_one_hot, X_test_no_one_hot = get_data_for_refit(seed, dataset_id)
     # config = {
     #     **config, 
     #     'data__keyword': args.dataset_id,
@@ -315,8 +190,8 @@ def run_on_dataset(cocktails, args, seed, budget, dataset_id):
     exp_dir = args.exp_dir / dataset_openml.name
     result_dict = json.load(open(exp_dir / "result.json", "r"))
 
-    temp_dir = exp_dir / "tmp_refit"
-    out_dir = exp_dir /  "out_refit"
+    temp_dir = exp_dir / "tmp_refit_2"
+    out_dir = exp_dir /  "out_refit_2"
     backend_kwargs = dict(
         temporary_directory=temp_dir,
         output_directory=out_dir,
@@ -406,12 +281,70 @@ def run_on_dataset(cocktails, args, seed, budget, dataset_id):
         }
         json.dump(final_result, open(exp_dir / 'result_refit.json', 'w'))
     except Exception as e:
+        final_result = {
+            'test_score': final_score['test'],
+            'train_score': final_score['train'],
+            'val_score': final_score['val'],
+            'dataset_name': dataset_openml.name,
+            'dataset_id': dataset_id,
+            'configuration': configuration.get_dictionary(),
+            **options
+        }
+        json.dump(final_result, open(exp_dir / 'result_refit.json', 'w'))
         print(f"Refit failed due to {repr(e)}")
         print(traceback.format_exc())
     finally:
         clean_logger(logging_server=logging_server, stop_logging_server=stop_logging_server)
     
+    final_result.pop("configuration", None)
     return final_result
+
+
+def get_data_for_refit(seed, dataset_id):
+    openml.datasets.functions._get_dataset_parquet = lambda x: None
+    dataset_openml = openml.datasets.get_dataset(dataset_id=dataset_id)
+    # retrieve categorical data for encoding
+    X, y, categorical_indicator, attribute_names = dataset_openml.get_data(
+        dataset_format="dataframe", target=dataset_openml.default_target_attribute
+    )
+    X, y, categorical_indicator, num_high_cardinality, num_columns_missing, num_rows_missing, \
+    num_categorical_columns, n_pseudo_categorical, original_n_samples, original_n_features = \
+        preprocessing(X, y, categorical_indicator, categorical=False,
+                        regression=False, transformation=None)
+    train_prop = 0.7
+    train_prop = min(15000 / X.shape[0], train_prop)
+    numeric_transformer = StandardScaler()
+    numeric_transformer_sparse = MaxAbsScaler()
+    categorical_transformer = OneHotEncoder(handle_unknown="ignore", sparse=False)
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer, [i for i in range(X.shape[1]) if not categorical_indicator[i]]),
+            # ("cat", categorical_transformer, [i for i in range(X.shape[1]) if categorical_indicator[i]]),
+        ]
+    )
+    preprocessor_sparse = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer_sparse,
+                [i for i in range(X.shape[1]) if not categorical_indicator[i]]),
+            # ("cat", categorical_transformer, [i for i in range(X.shape[1]) if categorical_indicator[i]]),
+        ]
+    )
+
+    y_train, y_test, _, _, X_train_no_one_hot, X_test_no_one_hot = get_preprocessed_train_test_split(
+                X,
+                y,
+                categorical_indicator,
+                {'regression': False},
+                train_prop,
+                numeric_transformer,
+                numeric_transformer_sparse,
+                preprocessor,
+                preprocessor_sparse,
+                seed
+            )
+            
+    return dataset_openml,y_train,y_test,X_train_no_one_hot,X_test_no_one_hot
 
 
 ############################################################################
@@ -435,11 +368,6 @@ parser.add_argument(
     '--exp_dir',
     type=Path,
     default="/home/rkohli/tabular-benchmark/autopytorch_tmp"
-)
-parser.add_argument(
-    '--max_configs',
-    type=int,
-    default=10
 )
 parser.add_argument(
     '--seed',
@@ -478,9 +406,34 @@ if __name__ == '__main__':
     seed = args.seed
     budget = args.epochs
 
-    
-    final_benchmark_dataset_ids = [44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131, 44089, 44090, 44091]
+    total_job_time = args.slurm_job_time_secs #max(time * 1.5, 120) * args.chunk_size
+    if args.slurm:
+        slurm_executer = get_executer(
+            partition=args.partition,
+            log_folder=args.exp_dir / "log_test",
+            total_job_time_secs=total_job_time,
+            gpu=args.device!="cpu")
+    final_benchmark_dataset_ids = [42742, 43489]
+    results = []
     for dataset_id in final_benchmark_dataset_ids:
-        final_result = run_on_dataset(cocktails, args, seed, budget, dataset_id=dataset_id)
-        print(f"Refitted with best score: {final_result}")
+        print(f"Starting refitting on dataset: {dataset_id}")
+        if args.slurm:
+            results.append(slurm_executer.submit(run_on_dataset, cocktails, args, seed, budget, dataset_id))
+        else:
+            results.append(run_on_dataset(cocktails, args, seed, budget, dataset_id=dataset_id))
+    
+    if args.slurm:
+        new_results = []
+        for job in results:
+            print(f"Waiting for job to finish: {job.job_id}")
+            try:
+                result = job.result()
+                new_results.append(result)
+            except Exception as e:
+                print(f"Failed for {job.job_id} with exception: {repr(e)}")
+                print(traceback.format_exc())
 
+        results = new_results
+    
+    pd.concat(results).to_csv(args.exp_dir / "refit_results_3.csv")
+        # print(f"Refitted with best score: {}")

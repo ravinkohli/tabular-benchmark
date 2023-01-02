@@ -122,16 +122,16 @@ def get_executer_class(partition: str) -> SlurmExecutor:
     return PARTITION_TO_EXECUTER[key]
 
 
-def get_executer_params(timeout: float, partition: str, gpu: bool = False) -> Dict[str, Any]:
+def get_executer_params(timeout: float, partition: str, gpu: bool = False, cpu_nodes: int = 1, mem_per_cpu: int = 2000) -> Dict[str, Any]:
     if gpu:
         return {'timeout_min': int(timeout), 'slurm_partition': partition, 'slurm_gres': "gpu:1"} #  'slurm_tasks_per_node': 1,
     else:
-        return {'time': int(timeout), 'partition': partition, 'mem_per_cpu': 12000, 'nodes': 1, 'cpus_per_task': 1, 'ntasks_per_node': 1}
+        return {'time': int(timeout), 'partition': partition, 'mem_per_cpu': mem_per_cpu, 'nodes': 1, 'cpus_per_task': cpu_nodes}
 
 
-def get_executer(partition: str, log_folder: str, gpu: bool=False, total_job_time_secs: float = 3600):
+def get_executer(partition: str, log_folder: str, gpu: bool=False, total_job_time_secs: float = 3600, cpu_nodes: int = 1, mem_per_cpu: int = 2000):
     slurm_executer = get_executer_class(partition)(folder=log_folder)
-    slurm_executer.update_parameters(**get_executer_params(np.ceil(total_job_time_secs/60), partition, gpu))
+    slurm_executer.update_parameters(**get_executer_params(np.ceil(total_job_time_secs/60), partition, gpu, cpu_nodes=cpu_nodes, mem_per_cpu=mem_per_cpu))
     return slurm_executer
 
 

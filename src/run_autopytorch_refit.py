@@ -63,7 +63,7 @@ def get_preprocessed_train_test_split(X, y, categorical_indicator, resnet_config
         X_test_one_hot = preprocessor.transform(X_test)
         X_train_no_one_hot = np.zeros_like(X_train)
         X_test_no_one_hot = np.zeros_like(X_test)
-                # not column transformer to preserve order
+        # not column transformer to preserve order
         for i in range(X_train.shape[1]):
             if categorical_indicator[i]:
                 X_train_no_one_hot[:, i] = X_train[:, i]
@@ -413,7 +413,7 @@ if __name__ == '__main__':
             log_folder=args.exp_dir / "log_test",
             total_job_time_secs=total_job_time,
             gpu=args.device!="cpu")
-    final_benchmark_dataset_ids = [42742, 43489]
+    final_benchmark_dataset_ids = [44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131, 44089, 44090, 44091]
     results = []
     for dataset_id in final_benchmark_dataset_ids:
         print(f"Starting refitting on dataset: {dataset_id}")

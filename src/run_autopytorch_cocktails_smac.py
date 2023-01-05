@@ -15,8 +15,8 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 
-from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
-from generate_dataset_pipeline import generate_dataset, generate_dataset_smac
+from models.reg_cocktails import get_updates_for_regularization_cocktails
+from generate_dataset_pipeline import generate_dataset_smac
 from configs.model_configs.autopytorch_config import autopytorch_config_default
 from reproduce_utils import get_executer
 from run_autopytorch_refit import get_data_for_refit
@@ -136,7 +136,7 @@ def run_on_dataset(args, seed, budget, config, max_time):
     dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
     print(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
     exp_dir = args.exp_dir / dataset_openml.name
-    search_space_updates, include_updates = get_updates_for_regularization_cocktails()
+    search_space_updates, include_updates = get_updates_for_regularization_cocktails(args.preprocess)
 
     api = TabularClassificationTask(
             seed=seed,
@@ -338,7 +338,11 @@ parser.add_argument(
     type=int,
     default=180,
     help='Time on slurm in seconds')
-
+parser.add_argument(
+    '--preprocess',
+    action='store_true',
+    help='True if we want to run with their preprocessing'
+)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -360,7 +364,8 @@ if __name__ == '__main__':
     config = {
         'data__categorical': False,
         'data__method_name': 'openml',
-        'data__impute_nans': True}
+        'data__impute_nans': True,
+        'data__preprocess': args.preprocess}
     config = {**config, **autopytorch_config_default, **CONFIG_DEFAULT}
     
     job = None

@@ -38,7 +38,7 @@ from autoPyTorch.pipeline.components.training.metrics.utils import calculate_sco
 
 
 
-def get_updates_for_regularization_cocktails():
+def get_updates_for_regularization_cocktails(preprocess: bool = False):
     """
     These updates replicate the regularization cocktail paper search space.
     Args:
@@ -178,12 +178,13 @@ def get_updates_for_regularization_cocktails():
         value_range=['median'],
         default_value='median',
     )
-    search_space_updates.append(
-        node_name='scaler',
-        hyperparameter='__choice__',
-        value_range=['StandardScaler'],
-        default_value='StandardScaler',
-    )
+    if not preprocess:
+        search_space_updates.append(
+            node_name='scaler',
+            hyperparameter='__choice__',
+            value_range=['StandardScaler'],
+            default_value='StandardScaler',
+        )
 
     search_space_updates.append(
         node_name='optimizer',
@@ -204,7 +205,7 @@ def get_updates_for_regularization_cocktails():
     return search_space_updates, include_updates
 
 
-def get_updates_for_autopytorch_tabular():
+def get_updates_for_autopytorch_tabular(preprocess: bool = False):
     from autoPyTorch.utils.hyperparameter_search_space_update import HyperparameterSearchSpaceUpdates
     # from autoPyTorch.constants import MIN_CATEGORIES_FOR_EMBEDDING_MAX
 
@@ -466,12 +467,13 @@ def get_updates_for_autopytorch_tabular():
         value_range=['mean'],
         default_value='mean',
     )
-    search_space_updates.append(
-        node_name='scaler',
-        hyperparameter='__choice__',
-        value_range=['StandardScaler'],
-        default_value='StandardScaler',
-    )
+    if not preprocess:
+        search_space_updates.append(
+            node_name='scaler',
+            hyperparameter='__choice__',
+            value_range=['StandardScaler'],
+            default_value='StandardScaler',
+        )
     # trainer
     trainer_choices = ['StandardTrainer', 'MixUpTrainer']
     search_space_updates.append(
@@ -585,13 +587,15 @@ def run_on_autopytorch(
     metric_name: str = "accuracy",
     configuration: None | Configuration = None,
     logger_port: int = logging.handlers.DEFAULT_TCP_LOGGING_PORT,
+    preprocess: bool = False
 ) -> float:
     ############################################################################
     # Build and fit a classifier
     # ==========================
 
     start_time = time.time()
-    search_space_updates, include_updates = get_updates_for_regularization_cocktails() if cocktails else get_updates_for_autopytorch_tabular()
+    print(f"Using preprocess: {preprocess}")
+    search_space_updates, include_updates = get_updates_for_regularization_cocktails(preprocess) if cocktails else get_updates_for_autopytorch_tabular(preprocess)
     backend.save_datamanager(dataset)
     pipeline_options = replace_string_bool_to_bool(json.load(open(
                 os.path.join(autopytorch_source_dir, 'autoPyTorch/configs/default_pipeline_options.json'))))

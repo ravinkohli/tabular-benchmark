@@ -29,7 +29,7 @@ def balance_data(x, y):
 
     return x.iloc[total_indices] if hasattr(x, 'iloc') else x, y
 
-def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, categorical=False, regression=False, balance=False, rng=None) -> pd.DataFrame:
+def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, categorical=False, regression=False, balance=False, rng=None, preprocess=False) -> pd.DataFrame:
     """
     Import data from openML
     :param int openml_task_id:
@@ -71,11 +71,14 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     elif impute_nans:
         from sklearn.impute import SimpleImputer
         # Autopytorch preprocessing
-        # categorical_imputer = SimpleImputer(strategy="constant")
-        # numerical_imputer = SimpleImputer(strategy="median")
-        # Impute numerical columns with mean and categorical columns with most frequent
-        categorical_imputer = SimpleImputer(strategy="most_frequent")
-        numerical_imputer = SimpleImputer(strategy="mean")
+        if not preprocess:
+            categorical_imputer = SimpleImputer(strategy="constant")
+            numerical_imputer = SimpleImputer(strategy="median")
+        else:
+            print("Using their preprocessing")
+            # Impute numerical columns with mean and categorical columns with most frequent
+            categorical_imputer = SimpleImputer(strategy="most_frequent")
+            numerical_imputer = SimpleImputer(strategy="mean")
         # check that there a > 0 categorical columns
         if sum(categorical_indicator) > 0:
             X.iloc[:, categorical_indicator] = categorical_imputer.fit_transform(X.iloc[:, categorical_indicator])

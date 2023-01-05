@@ -15,7 +15,7 @@ import numpy as np
 import sklearn.model_selection
 from models.reg_cocktails import run_on_autopytorch, get_updates_for_regularization_cocktails
 from generate_dataset_pipeline import generate_dataset
-from configs.model_configs.autopytorch_config import autopytorch_config_default
+from configs.model_configs.autopytorch_config import autopytorch_config_default, autopytorch_config
 from reproduce_utils import get_executer
 
 from autoPyTorch.utils.logging_ import setup_logger, get_named_client_logger, start_log_server
@@ -82,7 +82,8 @@ def run_random_search(
                     validator=validator,
                     logger_port=logger_port,
                     autopytorch_source_dir=args.autopytorch_source_dir,
-                    dataset_properties=dataset_properties
+                    dataset_properties=dataset_properties,
+                    preprocess=args.preprocess
                 )
                 print(f"Submitted training for {num_run} with job_id: {job.job_id}")
                 current_runs[num_run] = {
@@ -103,7 +104,8 @@ def run_random_search(
                     validator=validator,
                     logger_port=logger_port,
                     autopytorch_source_dir=args.autopytorch_source_dir,
-                    dataset_properties=dataset_properties
+                    dataset_properties=dataset_properties,
+                    preprocess=args.preprocess
                 )
                 run_history[num_run] = {
                     'configuration': config.get_dictionary(),
@@ -256,7 +258,7 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         seed=seed,
         dataset_name=dataset_openml.name
     )
-    search_space_updates, include_updates = get_updates_for_regularization_cocktails()
+    search_space_updates, include_updates = get_updates_for_regularization_cocktails(args.preprocess)
     dataset_requirements = get_dataset_requirements(
                 info=dataset.get_required_dataset_info(),
                 include=include_updates,
@@ -381,7 +383,11 @@ parser.add_argument(
     type=int,
     default=180,
     help='Time on slurm in seconds')
-
+parser.add_argument(
+    '--preprocess',
+    action='store_true',
+    help='True if we want to run with their preprocessing'
+)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -390,19 +396,21 @@ if __name__ == '__main__':
 
     CONFIG_DEFAULT = {"train_prop": 0.70,
                       "val_test_prop": 0.3,
-                      "max_val_samples": None,
-                      "max_test_samples": None,
-                      "max_train_samples": 10000,
+                      "max_val_samples": 50_000,
+                      "max_test_samples": 50_000,
+                      "max_train_samples": 10_000,
                       "balance": True
-                      # "max_test_samples": None,
     }
+
     config = {
         'data__categorical': False,
         'data__method_name': 'openml',
-        'data__impute_nans': True}
-    config = {**config, **autopytorch_config_default, **CONFIG_DEFAULT}
+        'data__impute_nans': True,
+        'data__preprocess': args.preprocess}
     
-    
+    apt_config = autopytorch_config if args.preprocess else autopytorch_config_default
+    config = {**config, **apt_config, **CONFIG_DEFAULT}
+
     final_result = run_on_dataset(cocktails, args, seed, budget, config)
     print(f"Finished search with best score: {final_result}")
 

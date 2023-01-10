@@ -15,7 +15,6 @@ def balance_data(x, y):
     indices = [(y == i) for i in np.unique(y)]
     sorted_classes = np.argsort(
         list(map(sum, indices)))  # in case there are more than 2 classes, we take the two most numerous
-
     n_samples_min_class = sum(indices[sorted_classes[-2]])
     print("n_samples_min_class", n_samples_min_class)
     indices_max_class = rng.choice(np.where(indices[sorted_classes[-1]])[0], n_samples_min_class, replace=False)
@@ -26,7 +25,6 @@ def balance_data(x, y):
     indices_second_class = (y == sorted_classes[-2])
     y[indices_first_class] = 0
     y[indices_second_class] = 1
-
     return x.iloc[total_indices] if hasattr(x, 'iloc') else x, y
 
 def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, categorical=False, regression=False, balance=False, rng=None, preprocess=False) -> pd.DataFrame:
@@ -51,10 +49,16 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     print("{} columns".format(X.shape[1]))
     y_encoder = LabelEncoder()
     # Replace categorical values by integers for each categorical column
-    for i, categorical in enumerate(categorical_indicator):
-        X.iloc[:, i] = X.iloc[:, i].astype('category')
-        X.iloc[:, i] = X.iloc[:, i].cat.codes
-        X.iloc[:, i] = X.iloc[:, i].astype('int64')
+    if categorical:
+        for i, categorical in enumerate(categorical_indicator):
+            X.iloc[:, i] = X.iloc[:, i].astype('category')
+            X.iloc[:, i] = X.iloc[:, i].cat.codes
+            X.iloc[:, i] = X.iloc[:, i].astype('int64')
+    else:
+        X = X[X.columns[~categorical_indicator]]
+        if X.shape[1] == 0:
+            print("removed all features, skipping this task")
+            return None
 
     assert remove_nans or impute_nans, "You need to remove or impute nans"
     if remove_nans:
@@ -80,26 +84,14 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
             categorical_imputer = SimpleImputer(strategy="most_frequent")
             numerical_imputer = SimpleImputer(strategy="mean")
         # check that there a > 0 categorical columns
-        if sum(categorical_indicator) > 0:
-            X.iloc[:, categorical_indicator] = categorical_imputer.fit_transform(X.iloc[:, categorical_indicator])
-        # check that there a > 0 numerical columns
-        if sum(~categorical_indicator) > 0:
-            X.iloc[:, ~categorical_indicator] = numerical_imputer.fit_transform(X.iloc[:, ~categorical_indicator])
-
-
-    # Replace categorical values by integers for each categorical column
-    # X = pd.DataFrame(OrdinalEncoder().fit_transform(X))
-    # X.iloc[:, i].astype('category')
-    # X.iloc[:, i] = X.iloc[:, i].cat.codes
-    # X.iloc[:, i] = X.iloc[:, i].astype('int64')
-
-
-
-    # print("removing {} categorical features among {} features".format(sum(categorical_indicator), X.shape[1]))
-    # X = X.to_numpy()[:, ~categorical_indicator]  # remove all categorical columns
-    # if X.shape[1] == 0:
-    #     print("removed all features, skipping this task")
-    #     return None
+        if categorical:
+            if sum(categorical_indicator) > 0:
+                X.iloc[:, categorical_indicator] = categorical_imputer.fit_transform(X.iloc[:, categorical_indicator])
+            # check that there a > 0 numerical columns
+            if sum(~categorical_indicator) > 0:
+                X.iloc[:, ~categorical_indicator] = numerical_imputer.fit_transform(X.iloc[:, ~categorical_indicator])
+        else:
+            X = numerical_imputer.fit_transform(X)
 
     y = y_encoder.fit_transform(y)
 

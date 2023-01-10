@@ -118,7 +118,7 @@ for i, row in df.iterrows():
         -l walltime=23:00:30 -p "not cluster='graphite' 
         AND not cluster='grimani' AND not cluster='gruss'" -q production"""
         # TODO modify launch_agent.sh
-        SLURM_COMMAND = "sbatch --export=wandb_id={},project={},sweep_id={} launch_benchmarks/launch_agent.sh"
+        SLURM_COMMAND = "sbatch --bosch --export=wandb_id={},project={},sweep_id={} launch_benchmarks/launch_agent.sh"
 
     sweep = api.sweep(f"{wandb_id}/{row['project']}/{row['sweep_id']}")
     print(sweep)

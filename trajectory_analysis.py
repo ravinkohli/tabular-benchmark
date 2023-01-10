@@ -31,9 +31,10 @@ def save_formatted_df(restore_path, df):
     df["val_test_prop"] = 0.3
     df["benchmark"] = "numerical_classif_medium"
     df["num_epochs"] = 105
+    df["step"] = df["config_id"]
 
     null_columns = ["mean_r2_test", "mean_r2_val", "...7", "_runtime", "_step", "_timestamp", "_wandb", "data_generation_time", "max_test_samples", "max_val_samples", "mean_r2_train", "model_type", "n_features", "transformed_target",
-                "n_iter", "n_test", "n_train", "one_hot_encoder", "processor", "regression", "std_r2_test", "std_r2_train", "std_r2_val", "step", "model__criterion", "model__learning_rate", "model__loss", "model__max_depth",
+                "n_iter", "n_test", "n_train", "one_hot_encoder", "processor", "regression", "std_r2_test", "std_r2_train", "std_r2_val", "model__criterion", "model__learning_rate", "model__loss", "model__max_depth",
                 "model__max_leaf_nodes", "model__min_impurity_decrease", "model__min_samples_leaf", "model__min_samples_split", "model__n_estimators", "model__n_iter_no_change", "model__subsample", "model__validation_fraction",
                 "early_stopping_rounds", "model__colsample_bylevel", "model__colsample_bytree", "model__gamma", "model__min_child_weight", "model__reg_alpha", "model__reg_lambda", "model__use_label_encoder", "model__early_stopping",
                 "model__max_iter", "model__bootstrap", "model__max_features", "log_training", "model__batch_size", "model__device", "model__lr", "model__lr_scheduler", "model__max_epochs", "model__module__d_embedding",
@@ -58,7 +59,11 @@ def save_formatted_df(restore_path, df):
     df.to_csv(restore_path.replace(".csv", "_formatted.csv"), index=False)
 
 
-def get_traj_random(search_path, filter_benchmark_ids):
+def get_traj_random(
+    search_path: str,
+    filter_benchmark_ids: bool = False,
+    model_name_suffix: str = ""
+):
     trajectories_glob = list()
     for file in glob.glob(search_path, recursive=True):
         runhistory = json.load(open(os.path.join(file), 'r'))
@@ -68,16 +73,21 @@ def get_traj_random(search_path, filter_benchmark_ids):
             continue
         runs = []
         for key, value in runhistory.items():
-            if key == 1:
+            # print(key)
+            if key == "1":
                 hp = "default"
             else:
                 hp = "random"
-            runs.append({'config_id': key, 'duration': value.get("duration", 0), **value["cost"], 'model_name': 'cocktails_random', 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
+            runs.append({'config_id': key, 'duration': value.get("duration", 0), **value["cost"], 'model_name': 'cocktails_random' + f"_{model_name_suffix}", 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
         run_trajectory = pd.DataFrame(runs)
         trajectories_glob.append(run_trajectory)
     return trajectories_glob
 
-def get_traj_smac(search_path, filter_benchmark_ids):
+def get_traj_smac(
+    search_path: str,
+    filter_benchmark_ids: bool = False,
+    model_name_suffix: str = ""
+    ):
     trajectories_glob = list()
     print(f"Search path is: {search_path}")
     for file in glob.glob(search_path, recursive=True):
@@ -95,7 +105,7 @@ def get_traj_smac(search_path, filter_benchmark_ids):
             if "success" not in status_type.lower():
                 continue
             hp = loss_dict.get("configuration_origin", "smac").lower()
-            runs.append({'config_id': run_key[0], 'duration': loss_dict.get("duration", 0), 'val': 1 - loss_dict.get('accuracy', 1), 'train': 1 - loss_dict.get('train_loss', {}).get('accuracy', 1), 'test': 1 - loss_dict.get('test_loss', 1), 'model_name': 'cocktails_smac', 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
+            runs.append({'config_id': run_key[0], 'duration': loss_dict.get("duration", 0), 'val': 1 - loss_dict.get('accuracy', 1), 'train': 1 - loss_dict.get('train_loss', {}).get('accuracy', 1), 'test': 1 - loss_dict.get('test_loss', 1), 'model_name': 'cocktails_smac' + f"_{model_name_suffix}", 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
         run_trajectory = pd.DataFrame(runs)
         trajectories_glob.append(run_trajectory)
     return trajectories_glob
@@ -105,7 +115,8 @@ def get_trajectories(search_path: str, restore_path: str, filter_benchmark_ids: 
         return pd.read_csv(restore_path)
     else:
         func = get_traj_smac if 'smac' in search_path else get_traj_random
-        trajectories_glob = func(search_path, filter_benchmark_ids)
+        model_name_suffix = "" if "no_preprocess" in search_path else "preprocess"
+        trajectories_glob = func(search_path, filter_benchmark_ids, model_name_suffix=model_name_suffix)
         df = pd.concat(trajectories_glob)
         df.to_csv(restore_path, index=False)
         return df

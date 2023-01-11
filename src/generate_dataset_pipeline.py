@@ -131,12 +131,11 @@ def generate_dataset_smac(config, rng):
         x = x.astype(np.float32)
         y = generate_target(x, config, rng)
 
-    x_train, x_val, x_test, y_train, y_val, y_test = data_to_train_test(x, y, config, rng=rng)
+    x_train, x_val, X_test, y_train, y_val, y_test = data_to_train_test(x, y, config, rng=rng)
 
     train_val_split = x_val.shape[0] / (x_train.shape[0] + x_val.shape[0])
     
-    train_size = (x_train.shape[0] + x_val.shape[0]) / x.shape[0]
-
-    X_train, X_test, y_train, y_test = train_test_split(x, y, train_size=train_size)
+    X_train = np.concatenate([x_train, x_val])
+    y_train = np.concatenate([y_train, y_val])
 
     return X_train, X_test, y_train, y_test, categorical_indicator, train_val_split

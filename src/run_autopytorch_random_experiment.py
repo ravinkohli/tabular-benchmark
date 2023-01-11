@@ -211,7 +211,8 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         **config, 
         'data__keyword': args.dataset_id,
     }
-    X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
+    X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, seed)
+
     dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
     print(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
     exp_dir = args.exp_dir / dataset_openml.name
@@ -256,7 +257,8 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         resampling_strategy=NoResamplingStrategyTypes.no_resampling,
         validator=validator,
         seed=seed,
-        dataset_name=dataset_openml.name
+        dataset_name=dataset_openml.name,
+        shuffle=False
     )
     search_space_updates, include_updates = get_updates_for_regularization_cocktails(args.preprocess)
     dataset_requirements = get_dataset_requirements(

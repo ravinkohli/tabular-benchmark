@@ -16,7 +16,7 @@ from sklearn.metrics import accuracy_score
 
 
 from models.reg_cocktails import get_updates_for_regularization_cocktails
-from generate_dataset_pipeline import generate_dataset_smac
+from generate_dataset_pipeline import generate_dataset_smac, generate_dataset
 from configs.model_configs.autopytorch_config import autopytorch_config_default
 from reproduce_utils import get_executer
 from run_autopytorch_refit import get_data_for_refit
@@ -131,7 +131,8 @@ def run_on_dataset(args, seed, budget, config, max_time):
         'data__keyword': args.dataset_id,
     }
 
-    X_train, X_test, y_train, y_test, categorical_indicator, train_val_split = generate_dataset_smac(config, np.random.RandomState(seed))
+    # X_train, X_test, y_train, y_test, categorical_indicator, train_val_split = generate_dataset_smac(config, seed)
+    X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, seed)
 
     dataset_openml = openml.datasets.get_dataset(args.dataset_id, download_data=False)
     print(f"Running {dataset_openml.name} with train shape: {X_train.shape}")
@@ -148,7 +149,7 @@ def run_on_dataset(args, seed, budget, config, max_time):
             delete_tmp_folder_after_terminate=False,
             include_components=include_updates,
             search_space_updates=search_space_updates,
-            resampling_strategy_args={'val_share': train_val_split}
+            # resampling_strategy_args={'val_share': train_val_split}
         )
     try:
         
@@ -162,6 +163,8 @@ def run_on_dataset(args, seed, budget, config, max_time):
         api.search(
                 X_train=X_train.copy(),
                 y_train=y_train.copy(),
+                X_val=X_valid.copy(),
+                y_val=y_valid.copy(),
                 X_test=X_test.copy(),
                 y_test=y_test.copy(),
                 dataset_name=dataset_openml.name,

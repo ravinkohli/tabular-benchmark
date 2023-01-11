@@ -105,12 +105,13 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
     if balance:
         X, y = balance_data(X, y)
 
-    X = X.to_numpy()
+    X = X.to_numpy() if hasattr(X, 'to_numpy') else X
     
     if categorical:
         return X, y, categorical_indicator
 
     return X, y, None
+
 def import_real_data(keyword=None, balanced=True, path_to_dir="../data", max_num_samples=None, regression=False, categorical=False, dim=[],
                      rng=None):
     if not categorical:

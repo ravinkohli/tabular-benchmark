@@ -78,7 +78,9 @@ def get_traj_random(
                 hp = "default"
             else:
                 hp = "random"
-            runs.append({'config_id': key, 'duration': value.get("duration", 0), **value["cost"], 'model_name': 'cocktails_random' + f"_{model_name_suffix}", 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
+            model_name = "cocktails_random"
+            model_name = f"{model_name}_{model_name_suffix}" if len(model_name_suffix) > 0 else model_name
+            runs.append({'config_id': key, 'duration': value.get("duration", 0), **value["cost"], 'model_name': model_name, 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
         run_trajectory = pd.DataFrame(runs)
         trajectories_glob.append(run_trajectory)
     return trajectories_glob
@@ -105,7 +107,9 @@ def get_traj_smac(
             if "success" not in status_type.lower():
                 continue
             hp = loss_dict.get("configuration_origin", "smac").lower()
-            runs.append({'config_id': run_key[0], 'duration': loss_dict.get("duration", 0), 'val': 1 - loss_dict.get('accuracy', 1), 'train': 1 - loss_dict.get('train_loss', {}).get('accuracy', 1), 'test': 1 - loss_dict.get('test_loss', 1), 'model_name': 'cocktails_smac' + f"_{model_name_suffix}", 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
+            model_name = "cocktails_smac"
+            model_name = f"{model_name}_{model_name_suffix}" if len(model_name_suffix) > 0 else model_name
+            runs.append({'config_id': run_key[0], 'duration': loss_dict.get("duration", 0), 'val': 1 - loss_dict.get('accuracy', 1), 'train': 1 - loss_dict.get('train_loss', {}).get('accuracy', 1), 'test': 1 - loss_dict.get('test_loss', 1), 'model_name': model_name, 'dataset_name': dataset_info.get('dataset_name', None), 'dataset_id': dataset_id, "hp": hp})
         run_trajectory = pd.DataFrame(runs)
         trajectories_glob.append(run_trajectory)
     return trajectories_glob

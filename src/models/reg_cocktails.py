@@ -587,52 +587,56 @@ def run_on_autopytorch(
     metric_name: str = "accuracy",
     configuration: None | Configuration = None,
     logger_port: int = logging.handlers.DEFAULT_TCP_LOGGING_PORT,
-    preprocess: bool = False
+    preprocess: bool = False,
+    skip_training: bool = False
 ) -> float:
     ############################################################################
     # Build and fit a classifier
     # ==========================
 
     start_time = time.time()
-    print(f"Using preprocess: {preprocess}")
-    search_space_updates, include_updates = get_updates_for_regularization_cocktails(preprocess) if cocktails else get_updates_for_autopytorch_tabular(preprocess)
-    backend.save_datamanager(dataset)
-    pipeline_options = replace_string_bool_to_bool(json.load(open(
-                os.path.join(autopytorch_source_dir, 'autoPyTorch/configs/default_pipeline_options.json'))))
-    pipeline_options.update( # No early stopping and train on gpu
-    {
-        'early_stopping': -1,
-        'min_epochs': budget,
-        'epochs': budget,
-    })
-    pipeline_options.update({'device': device})
-    pipeline = TabularClassificationPipeline(
-        dataset_properties=dataset_properties,
-        random_state=seed,
-        include=include_updates,
-        search_space_updates=search_space_updates,
-        config=configuration,
-    )
+    if not skip_training:
+        print(f"Using preprocess: {preprocess}")
+        search_space_updates, include_updates = get_updates_for_regularization_cocktails(preprocess) if cocktails else get_updates_for_autopytorch_tabular(preprocess)
+        backend.save_datamanager(dataset)
+        pipeline_options = replace_string_bool_to_bool(json.load(open(
+                    os.path.join(autopytorch_source_dir, 'autoPyTorch/configs/default_pipeline_options.json'))))
+        pipeline_options.update( # No early stopping and train on gpu
+        {
+            'early_stopping': -1,
+            'min_epochs': budget,
+            'epochs': budget,
+        })
+        pipeline_options.update({'device': device})
+        pipeline = TabularClassificationPipeline(
+            dataset_properties=dataset_properties,
+            random_state=seed,
+            include=include_updates,
+            search_space_updates=search_space_updates,
+            config=configuration,
+        )
 
 
-    fit_dictionary = init_fit_dictionary(
-        pipeline_config=pipeline_options,
-        dataset_properties=dataset_properties,
-        budget_type="epochs",
-        budget=budget,
-        metric_name=metric_name,
-        dataset=dataset,
-        backend=backend,
-        num_run=num_run,
-        logger_port=logger_port
-    )
+        fit_dictionary = init_fit_dictionary(
+            pipeline_config=pipeline_options,
+            dataset_properties=dataset_properties,
+            budget_type="epochs",
+            budget=budget,
+            metric_name=metric_name,
+            dataset=dataset,
+            backend=backend,
+            num_run=num_run,
+            logger_port=logger_port
+        )
 
-    # print(repr(pipeline.get_hyperparameter_search_space()))
-    ############################################################################
-    # Search for an ensemble of machine learning algorithms
-    # =====================================================
-    pipeline.fit(X=fit_dictionary)
-
+        # print(repr(pipeline.get_hyperparameter_search_space()))
+        ############################################################################
+        # Search for an ensemble of machine learning algorithms
+        # =====================================================
+        pipeline.fit(X=fit_dictionary)
+    else:
+        import pickle
+        pipeline = pickle.load(open(os.path.join(backend.get_numrun_directory(seed=seed, num_run=num_run, budget=budget), backend.get_model_filename(seed=seed, idx=num_run, budget=budget)), "rb"))
     ############################################################################
     # Print the final ensemble performance
     # ====================================

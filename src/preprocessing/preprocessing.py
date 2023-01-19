@@ -18,11 +18,11 @@ def preprocessing(X, y, categorical_indicator, categorical, regression, transfor
     pseudo_categorical_mask = X.nunique() < 10
     n_pseudo_categorical = 0
     cols_to_delete = []
-    for i in range(X.shape[1]):
-        if pseudo_categorical_mask[i]:
-            if not categorical_indicator[i]:
-                n_pseudo_categorical += 1
-                cols_to_delete.append(i)
+    # for i in range(X.shape[1]):
+    #     if pseudo_categorical_mask[i]:
+    #         if not categorical_indicator[i]:
+    #             n_pseudo_categorical += 1
+    #             cols_to_delete.append(i)
     if not categorical:
         for i in range(X.shape[1]):
             if categorical_indicator[i]:
@@ -35,11 +35,16 @@ def preprocessing(X, y, categorical_indicator, categorical, regression, transfor
                              not i in cols_to_delete] # update categorical indicator
     print("Remaining categorical")
     print(categorical_indicator)
-    X, y, categorical_indicator, num_high_cardinality = remove_high_cardinality(X, y, categorical_indicator, 20)
-    print([X.columns[i] for i in range(X.shape[1]) if categorical_indicator[i]])
-    X, y, num_columns_missing, num_rows_missing, missing_cols_mask = remove_missing_values(X, y, 0.2)
-    categorical_indicator = [categorical_indicator[i] for i in range(len(categorical_indicator)) if
-                             not missing_cols_mask[i]]
+    num_high_cardinality = 0
+    # X, y, categorical_indicator, num_high_cardinality = remove_high_cardinality(X, y, categorical_indicator, 20)
+    # print([X.columns[i] for i in range(X.shape[1]) if categorical_indicator[i]])
+    num_columns_missing, num_rows_missing = (None, None)
+    X = impute_missing_values(X) #, y, 0.2)
+    X = X.toarray() if hasattr(X, 'toarray') else X
+    X = pd.DataFrame(X) 
+    # X, y, num_columns_missing, num_rows_missing, missing_cols_mask = remove_missing_values(X, y, 0.2)
+    # categorical_indicator = [categorical_indicator[i] for i in range(len(categorical_indicator)) if
+    #                          not missing_cols_mask[i]]
     if not regression:
         X, y = balance(X, y)
         y = le.fit_transform(y)

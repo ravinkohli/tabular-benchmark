@@ -53,6 +53,20 @@ def remove_missing_values(X, y, threshold=0.7, return_missing_col_mask=True):
     else:
         return X, y, sum(missing_cols_mask), sum(missing_rows_mask)
 
+def impute_missing_values(X):
+    from sklearn.impute import SimpleImputer
+    # categorical_imputer = SimpleImputer(strategy="constant")
+    numerical_imputer = SimpleImputer(strategy="median")
+    # check that there a > 0 categorical columns
+    # if categorical:
+    #     if sum(categorical_indicator) > 0:
+    #         X.iloc[:, categorical_indicator] = categorical_imputer.fit_transform(X.iloc[:, categorical_indicator])
+    #     # check that there a > 0 numerical columns
+    #     if sum(~categorical_indicator) > 0:
+    #         X.iloc[:, ~categorical_indicator] = numerical_imputer.fit_transform(X.iloc[:, ~categorical_indicator])
+    # else:
+    X = numerical_imputer.fit_transform(X)
+    return X
 
 def balance(x, y):
     rng = np.random.RandomState(0)

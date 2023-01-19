@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import json
 import traceback
+import pickle
 
 from ConfigSpace import Configuration
 import openml
@@ -45,7 +46,7 @@ def run_random_search(
     budget,
     X_test,
     y_test,
-    backend,
+    backend: Backend,
     logger_port,
     validator,
     dataset,
@@ -68,6 +69,10 @@ def run_random_search(
         for num_run, config in enumerate(subset_configurations, start=i*args.nr_workers + 1):  # 0 is reserved for refit
             # Run config on dataset
             print(f"Starting training for {num_run} and config: {config}")
+            skip_training = False
+            if os.path.exists(os.path.join(backend.get_numrun_directory(seed, num_run, budget))):
+                skip_training = True
+
             if args.slurm:
                 job = slurm_executer.submit(run_on_autopytorch,
                     dataset=copy.copy(dataset),
@@ -83,7 +88,8 @@ def run_random_search(
                     logger_port=logger_port,
                     autopytorch_source_dir=args.autopytorch_source_dir,
                     dataset_properties=dataset_properties,
-                    preprocess=args.preprocess
+                    preprocess=args.preprocess,
+                    skip_training=skip_training
                 )
                 print(f"Submitted training for {num_run} with job_id: {job.job_id}")
                 current_runs[num_run] = {
@@ -105,7 +111,8 @@ def run_random_search(
                     logger_port=logger_port,
                     autopytorch_source_dir=args.autopytorch_source_dir,
                     dataset_properties=dataset_properties,
-                    preprocess=args.preprocess
+                    preprocess=args.preprocess,
+                    skip_training=skip_training
                 )
                 run_history[num_run] = {
                     'configuration': config.get_dictionary(),
@@ -125,7 +132,7 @@ def run_random_search(
                 except Exception as e:
                     print(f"Failed to finish job: {job.job_id} with {repr(e)} and \nConfiguration: {current_runs[num_run]['configuration']}")
                     run_history[num_run]['cost'] = {'train': 0, 'test': 0, 'val': 0, 'duration': 0}
-
+                pickle.dump(run_history, open(os.path.join(backend.temporary_directory, "tmp_result.json"), "wb"))
     return run_history
 
 
@@ -249,6 +256,8 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         X_test=X_valid,
         y_test=y_valid
     )
+    logger.debug(f"the dataset info from validator: {validator.feature_validator.__dict__}")
+
     dataset = TabularDataset(
         X=X_train,
         Y=y_train,
@@ -261,6 +270,7 @@ def run_on_dataset(cocktails, args, seed, budget, config):
         shuffle=False
     )
     search_space_updates, include_updates = get_updates_for_regularization_cocktails(args.preprocess)
+    logger.debug(f"the dataset info: {dataset.get_required_dataset_info()}")
     dataset_requirements = get_dataset_requirements(
                 info=dataset.get_required_dataset_info(),
                 include=include_updates,

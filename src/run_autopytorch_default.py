@@ -42,6 +42,13 @@ def run_on_dataset(cocktails, args, seed, budget, dataset_id):
     print(f"Running {dataset_openml.name} with train shape: {X_train_no_one_hot.shape}")
     exp_dir = args.exp_dir / dataset_openml.name / str(dataset_id)
 
+    if exp_dir.exists():
+        if (exp_dir / "result_refit.json").exists():
+            print(f"Already finished for {dataset_openml.name}")
+            return json.load(open(exp_dir/"result_refit.json", "r"))
+        else:
+            exp_dir = exp_dir / "rerun"
+
     temp_dir = exp_dir / "tmp_refit"
     out_dir = exp_dir /  "out_refit"
     backend_kwargs = dict(
@@ -216,17 +223,16 @@ if __name__ == '__main__':
             total_job_time_secs=total_job_time,
             gpu=args.device!="cpu")
     final_benchmark_dataset_ids = [
-        41164
-    ]
-            #    44,    60,   151,   279,   293,   351,   354,   357,   720,
-            #   722,   725,   734,   735,   737,   761,   803,   816,   819,
-            #   821,   823,   833,   846,   847,   871,   976,   979,   993,
-            #  1044,  1053,  1110,  1113,  1119,  1120,  1222,  1241,  1242,
-            #  1461,  1476,  1477,  1478,  1486,  1489,  1503,  1507,  1526,
-            #  1590,  4134,  4541, 23517, 40685, 40923, 41146, 41147, 41150,
-            # 41162, 41163, 41164, 41166, 41168, 41169, 41671, 41972, 42206,
-            # 42343, 42395, 42468, 42477, 42742, 42746, 42769, 43489, 44089,
-            # 44090, 44091]
+        # 1053]
+               44,    60,   151,   279,   293,   351,   354,   357,   720,
+              722,   725,   734,   735,   737,   761,   803,   816,   819,
+              821,   823,   833,   846,   847,   871,   976,   979,   993,
+             1044,  1053,  1110,  1113,  1119,  1120,  1222,  1241,  1242,
+             1461,  1476,  1477,  1478,  1486,  1489,  1503,  1507,  1526,
+             1590,  4134,  4541, 23517, 40685, 40923, 41146, 41147, 41150,
+            41162, 41163, 41164, 41166, 41168, 41169, 41671, 41972, 42206,
+            42343, 42395, 42468, 42477, 42742, 42746, 42769, 43489, 44089,
+            44090, 44091]
 
     results = []
     for dataset_id in final_benchmark_dataset_ids:
@@ -249,6 +255,6 @@ if __name__ == '__main__':
 
         results = new_results
     
-    pd.concat(results).to_csv(args.exp_dir / "refit_results_3.csv")
+    pd.concat(results).to_csv(args.exp_dir / "refit_results.csv")
         # print(f"Refitted with best score: {}")
 

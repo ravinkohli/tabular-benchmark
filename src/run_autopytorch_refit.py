@@ -187,11 +187,11 @@ def run_on_dataset(cocktails, args, seed, budget, dataset_id):
     # }
     # X_train, X_valid, X_test, y_train, y_valid, y_test, categorical_indicator = generate_dataset(config, np.random.RandomState(seed))
     print(f"Running {dataset_openml.name} with train shape: {X_train_no_one_hot.shape}")
-    exp_dir = args.exp_dir / dataset_openml.name
+    exp_dir = args.exp_dir / dataset_openml.dataset_id / dataset_openml.name
     result_dict = json.load(open(exp_dir / "result.json", "r"))
 
-    temp_dir = exp_dir / "tmp_refit_2"
-    out_dir = exp_dir /  "out_refit_2"
+    temp_dir = exp_dir / "tmp_refit_dirty"
+    out_dir = exp_dir /  "out_refit_dirty"
     backend_kwargs = dict(
         temporary_directory=temp_dir,
         output_directory=out_dir,
@@ -279,7 +279,7 @@ def run_on_dataset(cocktails, args, seed, budget, dataset_id):
             'configuration': configuration,
             **options
         }
-        json.dump(final_result, open(exp_dir / 'result_refit.json', 'w'))
+        json.dump(final_result, open(exp_dir / 'result_refit_dirty.json', 'w'))
     except Exception as e:
         final_result = {
             'test_score': final_score['test'],
@@ -290,7 +290,7 @@ def run_on_dataset(cocktails, args, seed, budget, dataset_id):
             'configuration': configuration.get_dictionary(),
             **options
         }
-        json.dump(final_result, open(exp_dir / 'result_refit.json', 'w'))
+        json.dump(final_result, open(exp_dir / 'result_refit_dirty.json', 'w'))
         print(f"Refit failed due to {repr(e)}")
         print(traceback.format_exc())
     finally:
@@ -413,7 +413,14 @@ if __name__ == '__main__':
             log_folder=args.exp_dir / "log_test",
             total_job_time_secs=total_job_time,
             gpu=args.device!="cpu")
-    final_benchmark_dataset_ids = [44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131, 44089, 44090, 44091]
+    final_benchmark_dataset_ids = [
+        60, 354, 357, 720, 734, 735, 737, 816, 819, 833, 846, 847, 979,
+        1053, 1119, 1222, 1242, 1507, 1590, 4134, 4541, 41147,
+        41162, 41671, 41972, 42206, 42343, 42395, 42468, 42477, 42742, 42769, 43489
+    ]
+    # [
+    #     44120, 44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130, 44131, 44089, 44090, 44091
+    #     ]
     results = []
     for dataset_id in final_benchmark_dataset_ids:
         print(f"Starting refitting on dataset: {dataset_id}")

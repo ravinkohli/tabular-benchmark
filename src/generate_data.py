@@ -73,6 +73,7 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
             print("Removed all rows")
             return None
     elif impute_nans:
+        print(f"imputing Datasets")
         from sklearn.impute import SimpleImputer
         # Autopytorch preprocessing
         if not preprocess:
@@ -95,8 +96,6 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
 
     y = y_encoder.fit_transform(y)
 
-
-
     if regression:
         y = y.astype(np.float64)
     else:
@@ -106,6 +105,7 @@ def import_open_ml_data(keyword=None, remove_nans=None, impute_nans=None, catego
         X, y = balance_data(X, y)
 
     X = X.to_numpy() if hasattr(X, 'to_numpy') else X
+    X = X.toarray() if hasattr(X, 'toarray') else X
     
     if categorical:
         return X, y, categorical_indicator

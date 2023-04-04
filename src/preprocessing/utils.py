@@ -59,14 +59,20 @@ def remove_missing_values(X, y, threshold=0.7, return_missing_col_mask=True):
 
 
 def balance(x, y):
+    """
+    Balance the dataset by undersampling the majority class. In case of multiclass 
+    classification, the two most numerous classes are balanced."""
     rng = np.random.RandomState(0)
     if len(np.unique(y)) == 1:
         # return empty arrays
         return np.array([]), np.array([])
+    # collect indices of each class
     indices = [(y == i) for i in np.unique(y)]
+    # sort classes by number of samples ascending
     sorted_classes = np.argsort(
         list(map(sum, indices)))  # in case there are more than 2 classes, we take the two most numerous
     n_samples_min_class = sum(indices[sorted_classes[-2]])
+    # sample the majority class
     indices_max_class = rng.choice(np.where(indices[sorted_classes[-1]])[0], n_samples_min_class, replace=False)
     indices_min_class = np.where(indices[sorted_classes[-2]])[0]
     total_indices = np.concatenate((indices_max_class, indices_min_class))
@@ -76,7 +82,7 @@ def balance(x, y):
     y[indices_first_class] = 0
     y[indices_second_class] = 1
 
-    return x.iloc[total_indices], y
+    return x.iloc[total_indices] if hasattr(x, 'iloc') else x[total_indices], y
 
 
 def check_if_task_too_easy(X, y, categorical_indicator, regression=False, standardizer=None, max_train_samples=15000):

@@ -4,7 +4,10 @@ import pickle
 import datetime
 import json
 
-output_dir = "output/"
+from constant import WORKING_DIR
+
+
+output_dir = WORKING_DIR / "output"
 
 
 def save_loss_to_file(args, arr, name, extension=""):

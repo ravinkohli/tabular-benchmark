@@ -6,6 +6,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.optim import AdamW, Adam, SGD
 from skorch.callbacks import WandbLogger
 import sys
+
+from constant import WORKING_DIR
 sys.path.append("")
 from models.tabular.bin.resnet import ResNet, InputShapeSetterResnet
 from models.tabular.bin.mlp import MLP, InputShapeSetterMLP
@@ -16,6 +18,7 @@ from skorch.callbacks import Callback
 import numpy as np
 
 
+checkpoint_dir = WORKING_DIR / "skorch_cp"
 class LearningRateLogger(Callback):
     def on_epoch_begin(self, net,
                        dataset_train=None, dataset_valid=None, **kwargs):
@@ -66,7 +69,7 @@ def create_resnet_skorch(id, wandb_run=None, use_checkpoints=True,
         callbacks.append(LRScheduler(policy=ReduceLROnPlateau, patience=lr_patience, min_lr=2e-5,
                                      factor=0.2))  # FIXME make customizable
     if use_checkpoints:
-        callbacks.append(Checkpoint(dirname="skorch_cp", f_params=r"params_{}.pt".format(id), f_optimizer=None,
+        callbacks.append(Checkpoint(dirname=checkpoint_dir, f_params=r"params_{}.pt".format(id), f_optimizer=None,
                                     f_criterion=None))
     if not wandb_run is None:
         callbacks.append(WandbLogger(wandb_run, save_model=False))
@@ -129,7 +132,7 @@ def create_rtdl_mlp_skorch(id, wandb_run=None, use_checkpoints=True,
         callbacks.append(LRScheduler(policy=ReduceLROnPlateau, patience=lr_patience, min_lr=2e-5,
                                      factor=0.2))  # FIXME make customizable
     if use_checkpoints:
-        callbacks.append(Checkpoint(dirname="skorch_cp", f_params=r"params_{}.pt".format(id), f_optimizer=None,
+        callbacks.append(Checkpoint(dirname=checkpoint_dir, f_params=r"params_{}.pt".format(id), f_optimizer=None,
                                     f_criterion=None))
     if not wandb_run is None:
         callbacks.append(WandbLogger(wandb_run, save_model=False))
@@ -192,7 +195,7 @@ def create_ft_transformer_skorch(id, wandb_run=None, use_checkpoints=True,
         callbacks.append(LRScheduler(policy=ReduceLROnPlateau, patience=lr_patience, min_lr=2e-5,
                                      factor=0.2))  # FIXME make customizable
     if use_checkpoints:
-        callbacks.append(Checkpoint(dirname="skorch_cp", f_params=r"params_{}.pt".format(id), f_optimizer=None,
+        callbacks.append(Checkpoint(dirname=checkpoint_dir, f_params=r"params_{}.pt".format(id), f_optimizer=None,
                                     f_criterion=None))
     if not wandb_run is None:
         callbacks.append(WandbLogger(wandb_run, save_model=False))

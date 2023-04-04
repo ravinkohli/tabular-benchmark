@@ -8,7 +8,6 @@ import torch.nn.functional as F
 import skorch
 
 
-# %%
 class MLP(nn.Module):
     def __init__(
         self,

@@ -1,9 +1,11 @@
+from pathlib import Path
 import wandb
 import sys
+
 sys.path.append(".")
 from configs.all_model_configs import total_config
 
-
+WORKING_DIR = Path("/work/dlclarge2/rkohli-results_tab-bench/wandb_logging")
 def create_sweep(data_transform_config, model_name, regression, default, project, name,
                  dataset_size, categorical, datasets, remove_tranforms_from_model_config=False,
                  max_val_samples=None, max_test_samples=None):
@@ -47,7 +49,7 @@ def create_sweep(data_transform_config, model_name, regression, default, project
     data_transform_config["data__keyword"] = {"values": datasets}
 
     sweep_config = {
-        "program": "run_experiment.py",
+        "program": "run_experiment_custom.py",
         "name": name,
         "project": project,
         "method": "grid" if default else "random",

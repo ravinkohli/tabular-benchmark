@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 from create_models import create_model
 import os
@@ -6,7 +7,7 @@ from sklearn.preprocessing import QuantileTransformer, OneHotEncoder
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-
+from constant import WORKING_DIR
 
 def skorch_evaluation(model, x_train, x_val, x_test, y_train, y_val, y_test, config, model_id, return_r2,
                       delete_checkpoint):
@@ -32,16 +33,17 @@ def skorch_evaluation(model, x_train, x_val, x_test, y_train, y_val, y_test, con
 
     if "model__use_checkpoints" in config.keys() and config["model__use_checkpoints"]:
         # check that r"skorch_cp/params_{}.pt".format(model_id) exists
-        if os.path.exists(r"skorch_cp/params_{}.pt".format(model_id)):
+        model_checkpoint_path = WORKING_DIR / "skorch_cp" / "params_{}.pt".format(model_id)
+        if os.path.exists():
             print("Using checkpoint")
             if not config["regression"]:
-                model.load_params(r"skorch_cp/params_{}.pt".format(model_id))
+                model.load_params(model_checkpoint_path)
             else:
                 # TransformedTargetRegressor
                 if config["transformed_target"]:
-                    model.regressor_.load_params(r"skorch_cp/params_{}.pt".format(model_id))
+                    model.regressor_.load_params(model_checkpoint_path)
                 else:
-                    model.load_params(r"skorch_cp/params_{}.pt".format(model_id))
+                    model.load_params(model_checkpoint_path)
         else:
             print("Checkpoint does not exist")
             print("Outputting NaN")
@@ -77,8 +79,10 @@ def skorch_evaluation(model, x_train, x_val, x_test, y_train, y_val, y_test, con
 
     if "model__use_checkpoints" in config.keys() and config["model__use_checkpoints"] and not return_r2 and \
             delete_checkpoint:
+        model_checkpoint_path = WORKING_DIR / "skorch_cp" / "params_{}.pt".format(model_id)
+
         try:
-            os.remove(r"skorch_cp/params_{}.pt".format(model_id))
+            os.remove(model_checkpoint_path)
         except:
             print("could not remove params file")
             pass

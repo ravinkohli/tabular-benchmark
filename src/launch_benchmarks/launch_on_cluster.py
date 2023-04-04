@@ -7,6 +7,8 @@ import argparse
 import time
 import sys
 
+from utils import WORKING_DIR
+
 sys.path.append(".")
 from configs.wandb_config import wandb_id
 import time
@@ -122,13 +124,13 @@ for i, row in df.iterrows():
     if use_gpu:
         OAR_COMMAND = """oarsub "module load miniconda3;source activate toy_tabular;wandb agent {}/{}/{}"  -l gpu=1,walltime=23:00:30 -p "not cluster='graphite' AND not cluster='grimani' AND not cluster='gruss'" -q {}"""
         # TODO modify launch_agent_gpu.sh
-        SLURM_COMMAND = "sbatch --export=wandb_id={},project={},sweep_id={} launch_benchmarks/launch_agent_gpu.sh"
+        SLURM_COMMAND = "sbatch --export=wandb_id={},project={},sweep_id={},WANDB_DIR={} launch_benchmarks/launch_agent_gpu.sh"
     else:
         OAR_COMMAND = """oarsub "module load miniconda3;source activate toy_tabular;wandb agent {}/{}/{}" 
         -l walltime=23:00:30 -p "not cluster='graphite' 
         AND not cluster='grimani' AND not cluster='gruss'" -q production"""
         # TODO modify launch_agent.sh
-        SLURM_COMMAND = "sbatch --export=wandb_id={},project={},sweep_id={} launch_benchmarks/launch_agent.sh"
+        SLURM_COMMAND = "sbatch --bosch --export=wandb_id={},project={},sweep_id={},WANDB_DIR={} launch_benchmarks/launch_agent.sh"
 
     try:
         sweep = api.sweep(f"{wandb_id}/{row['project']}/{row['sweep_id']}")
@@ -143,7 +145,7 @@ for i, row in df.iterrows():
     for _ in range(n_runs_to_launch):
         print("Launching run")
         if not args.oar:
-            command = SLURM_COMMAND.format(wandb_id, row["project"], row["sweep_id"])
+            command = SLURM_COMMAND.format(wandb_id, row["project"], row["sweep_id"], WORKING_DIR / "wandb")
         else:
             command = OAR_COMMAND.format(wandb_id, row["project"], row["sweep_id"], args.oar_queue)
         print(command)
